@@ -1,0 +1,1344 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>口袋棋兵 Demo A-1：單角色移動 + 遇到NPC判定</title>
+  <style>
+    html, body { height: 100%; margin: 0; background:#0f1218; color:#e6e6e6; font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif; }
+    #wrap { display: grid; grid-template-columns: 1fr 340px; gap: 12px; height: 100%; padding: 12px; box-sizing: border-box; }
+    #game { background: #0b0e14; border: 1px solid #2a3040; border-radius: 12px; width: 100%; height: 100%; display:block; }
+    #panel { border: 1px solid #2a3040; border-radius: 12px; padding: 12px; background:#0b0e14; overflow:auto; }
+    h1 { font-size: 16px; margin: 0 0 10px; }
+    .row { margin: 10px 0; padding: 10px; border: 1px solid #20263a; border-radius: 10px; background:#0f1424; }
+    .muted { color:#a8b0c2; font-size: 12px; line-height: 1.5; }
+    .btns { display:flex; gap:8px; flex-wrap: wrap; }
+    button {
+      border: 1px solid #2a3040; background:#121a2d; color:#e6e6e6;
+      padding: 8px 10px; border-radius: 10px; cursor:pointer;
+    }
+    button:hover { filter: brightness(1.12); }
+    .k { color:#a8b0c2; }
+    .v { font-weight: 700; }
+    .tag { display:inline-block; padding:2px 8px; border:1px solid #2a3040; border-radius: 999px; font-size:12px; margin-right:6px; background:#11172a; }
+    .good { border-color:#2f5; }
+    .bad { border-color:#f55; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .ok { color:#7CFFB2; font-weight: 700; }
+    .ng { color:#FF9A9A; font-weight: 700; }
+    .warn { color:#ffd37a; font-weight: 700; }
+    .charTooltip {
+      position: fixed;
+      pointer-events: none;
+      background: rgba(12,14,20,0.92);
+      color: #e6e6e6;
+      border: 1px solid rgba(60,70,90,0.9);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      white-space: pre;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+      z-index: 9999;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <audio id="bgm" src="sound/BGM.mp3" preload="auto" loop></audio>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <div id="panel">
+    <h1>口袋棋兵 Demo A-1：單角色移動 + 遇到NPC判定</h1>
+
+    <div class="row">
+      <div class="muted">操作</div>
+      <div>點「角色相鄰的六角格」移動。走到 <span class="ng">紅色 NPC</span> 那格就會立刻判定勝負。</div>
+      <div class="muted" style="margin-top:6px;">規則：<span class="tag good">+</span> 比大、<span class="tag bad">-</span> 比小、平手用 LUK 加權擲骰。</div>
+    </div>
+
+    <div class="row" id="hud">
+      <div><span class="k">角色座標：</span><span class="v mono" id="posTxt">-</span></div>
+      <div style="margin-top:6px;"><span class="k">NPC 座標：</span><span class="v mono" id="npcPosTxt">-</span></div>
+      <div style="margin-top:6px;"><span class="k">目前格子：</span><span class="v" id="tileTxt">-</span></div>
+      <div style="margin-top:6px;"><span class="k">格子規則：</span><span class="v" id="ruleTxt">-</span></div>
+      <div style="margin-top:6px;"><span class="k">勝場：</span><span class="v mono" id="winTxt">0</span></div>
+      <div style="margin-top:6px;"><span class="k">狀態：</span><span class="v" id="stateTxt"><span class="ok">進行中</span></span></div>
+    </div>
+
+    <div class="row">
+      <div class="muted">玩家屬性（先固定一組，之後可改成讀角色卡資料）</div>
+      <div style="margin-top:8px;" id="charSelectRow">
+        <div class="muted">選擇角色：</div>
+        <div class="btns" style="margin-top:6px;" id="charBtns"></div>
+      </div>
+      <div class="mono" id="statsTxt" style="margin-top:6px; line-height: 1.7;"></div>
+      <div class="muted" style="margin-top:10px;">NPC 屬性（每局亂數一組偏科）</div>
+      <div class="mono" id="npcStatsTxt" style="margin-top:6px; line-height: 1.7;"></div>
+    </div>
+
+    <div class="row">
+      <div class="muted">最近一次判定</div>
+      <div id="logTxt" class="mono" style="margin-top:6px; line-height: 1.7; white-space: pre-wrap;"></div>
+    </div>
+
+    <div class="row">
+      <div class="btns">
+        <button id="regen">重新亂數棋格</button>
+        <button id="recenter">鏡頭置中</button>
+        <button id="restart">重開一局</button>
+        <button id="startGame">開始遊戲</button>
+      </div>
+      <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
+        <div class="muted">BGM 音量</div>
+        <input id="bgmVolume" type="range" min="0" max="100" value="60" style="width:180px; margin-left:8px;">
+        <div id="bgmVolTxt" class="muted" style="margin-left:8px;">60%</div>
+        <button id="bgmMute" style="margin-left:8px;">靜音</button>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="muted">棋盤背景</div>
+        <div class="btns" style="margin-top:6px;">
+          <button id="bgNone">無</button>
+          <button id="bgGrid">格線</button>
+          <button id="bgWood">木紋</button>
+          <button id="bgStone">石材</button>
+        </div>
+        <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+          <input id="bgFile" type="file" accept="image/*" />
+          <div class="muted" style="font-size:12px;">上傳自訂背景（建議：1024×1024 或 2048×2048，檔案 &lt; 1MB，若為可無縫平鋪請使用 512/1024 的方形）</div>
+        </div>
+        <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+          <select id="projectImgs" style="min-width:180px;"></select>
+          <button id="applyProjectImg">使用專案圖片</button>
+          <div class="muted" style="font-size:12px;">（預設目錄：此 `preview.html` 所在的專案目錄）</div>
+        </div>
+        <div style="margin-top:8px;">
+          <button id="toggleTextMode">文字可讀模式：描邊</button>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:8px;">
+        下一步要加：多 NPC / 淘汰動畫 / 回合按鈕，都能在這版基礎上快速擴充。
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // Background music: 嘗試自動播放，若被瀏覽器攔截則在使用者互動後解鎖播放
+  const bgm = document.getElementById('bgm');
+  if (bgm) {
+    try { bgm.volume = 0.6; } catch (e) {}
+    bgm.loop = true;
+
+    // 載入儲存的音量（若存在），並同步到 UI
+    const saved = localStorage.getItem('ppf_bgm_volume');
+    const initialVol = saved !== null ? Number(saved) : 0.6;
+    if (!Number.isNaN(initialVol)) bgm.volume = initialVol;
+
+    const volEl = document.getElementById('bgmVolume');
+    const volTxt = document.getElementById('bgmVolTxt');
+    const muteBtn = document.getElementById('bgmMute');
+    const updateVolUI = (v) => {
+      if (volEl) volEl.value = String(Math.round(v*100));
+      if (volTxt) volTxt.textContent = Math.round(v*100) + '%';
+      if (muteBtn) muteBtn.textContent = (v>0 ? '靜音' : '還原');
+    };
+    updateVolUI(bgm.volume);
+
+    if (volEl) {
+      volEl.addEventListener('input', (e) => {
+        const v = Number(e.target.value) / 100;
+        bgm.volume = v;
+        localStorage.setItem('ppf_bgm_volume', String(v));
+        updateVolUI(v);
+      });
+    }
+
+    if (muteBtn) {
+      let prevVol = bgm.volume || 0.6;
+      muteBtn.addEventListener('click', () => {
+        if (bgm.volume > 0) { prevVol = bgm.volume; bgm.volume = 0; localStorage.setItem('ppf_bgm_volume', '0'); }
+        else { bgm.volume = prevVol || 0.6; localStorage.setItem('ppf_bgm_volume', String(bgm.volume)); }
+        updateVolUI(bgm.volume);
+      });
+    }
+
+    const playPromise = bgm.play();
+    if (playPromise && playPromise.catch) {
+      playPromise.catch(() => {
+        const unlock = () => { bgm.play().catch(()=>{}); document.removeEventListener('click', unlock); };
+        document.addEventListener('click', unlock);
+      });
+    }
+  }
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  const HUD = {
+    posTxt: document.getElementById('posTxt'),
+    npcPosTxt: document.getElementById('npcPosTxt'),
+    tileTxt: document.getElementById('tileTxt'),
+    ruleTxt: document.getElementById('ruleTxt'),
+    statsTxt: document.getElementById('statsTxt'),
+    npcStatsTxt: document.getElementById('npcStatsTxt'),
+    logTxt: document.getElementById('logTxt'),
+    winTxt: document.getElementById('winTxt'),
+    stateTxt: document.getElementById('stateTxt'),
+  };
+
+  // tooltip element for hovering characters
+  const charTooltip = document.createElement('div');
+  charTooltip.className = 'charTooltip';
+  document.body.appendChild(charTooltip);
+
+  const STATS = ["STR","AGL","VIT","DEX","LUK","INT"];
+
+  // 角色名單（固定數值）
+  const CHARS = [
+    { name: '魯拉拉', stats: { STR:13, AGL:7, VIT:9, DEX:1, LUK:3, INT:9 } },
+    { name: '烈火拳', stats: { STR:16, AGL:4, VIT:10, DEX:2, LUK:1, INT:3 } },
+    { name: '影迅',   stats: { STR:5,  AGL:17,VIT:6, DEX:12, LUK:8, INT:4 } },
+    { name: '智將',   stats: { STR:4,  AGL:6, VIT:8, DEX:7, LUK:5, INT:18} },
+    { name: '混沌',   stats: { STR:8,  AGL:8, VIT:8, DEX:8, LUK:8, INT:8 } },
+  ];
+
+  let selectedChar = CHARS[0].name;
+
+  // 玩家（你這張卡的數值先硬編）
+  const player = {
+    name: "靜永月",
+    stats: { STR:13, AGL:7, VIT:9, DEX:1, LUK:3, INT:9 },
+    q: 0, r: 0,
+    x: 0, y: 0, tx: 0, ty: 0,
+    moving: false,
+  };
+
+  // NPC（紅色，亂數偏科）
+  const npc = {
+    name: "紅衣對手",
+    stats: { STR:8, AGL:8, VIT:8, DEX:8, LUK:8, INT:8 },
+    q: 1, r: 0,
+    x: 0, y: 0, tx: 0, ty: 0,
+    intent: null,
+    moving: false,
+  };
+
+  // 多個 NPC（來自其餘角色）
+  let npcList = [];
+
+  let wins = 0;
+  let gameOver = false;
+
+  // 盤面參數
+  let R = 6;       // 半徑（從 4 -> 6，格數由 61 增加到 127）
+  let HEX = 48;    // 六角半徑像素（放大六角尺寸）
+  const cam = { x: 0, y: 0, zoom: 1 };
+  let hoverKey = null;
+  let tiles = new Map();
+  let turnActive = false;
+  // 背景設定
+  let boardBgMode = 'none'; // 'none' | 'grid' | 'paper' | 'image'
+  let boardBgImage = null; // Image object when custom uploaded
+  let boardBgFollowCam = true; // background will translate with camera
+  let boardBgParallax = 0.9; // parallax factor (1.0 = exactly same speed)
+  // 文字可讀模式：'stroke' 使用描邊（原始），'cool' 使用冷色半透底 + 反向深色文字
+  let textReadMode = 'stroke';
+  // 專案內可用圖片（由 repo 中 image/background/ 掃描並寫入，為相對路徑）
+  const PROJECT_IMAGES = [
+    "image/background/ChatGPT Image 2026年2月28日 下午05_11_02.png"
+  ];
+  let inGame = false;
+  let overallWin = false;
+  let charButtons = [];
+  const CHAR_IMAGES = new Map(); // name -> Image
+  let npcRiskChance = 0.75; // NPC 有機率選擇劣勢或重疊（可由面板滑桿調整，預設 75%）
+  let npcAggroChance = 0.08; // 每回合有小機率選一隻 NPC 追求優勢格並嘗試擊殺玩家（預設 8%）
+  // difficulty presets map
+  const DIFFICULTY_PRESETS = { low: 0.25, medium: 0.6, high: 0.95 };
+
+  // --- helper: set npc risk and update UI element if exists
+  function setNpcRiskChance(v) {
+    npcRiskChance = Number(v);
+    const pct = Math.round(npcRiskChance * 100);
+    const pctEl = document.getElementById('riskPct'); if (pctEl) pctEl.textContent = pct + '%';
+    const inEl = document.getElementById('riskInput'); if (inEl) inEl.value = String(pct);
+  }
+
+  function applyDifficulty(key) {
+    if (DIFFICULTY_PRESETS[key] !== undefined) {
+      setNpcRiskChance(DIFFICULTY_PRESETS[key]);
+      const sel = document.getElementById('difficultySelect'); if (sel) sel.value = key;
+    }
+  }
+
+  function saveSettings() {
+    const sel = document.getElementById('difficultySelect');
+    const data = { npcRiskChance: npcRiskChance, npcAggroChance: npcAggroChance, difficulty: sel ? sel.value : 'custom' };
+    try { localStorage.setItem('ppf_settings', JSON.stringify(data)); HUD.logTxt.textContent = '設定已儲存'; } catch (e) { console.warn(e); }
+  }
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem('ppf_settings');
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s && s.npcRiskChance != null) setNpcRiskChance(Number(s.npcRiskChance));
+      if (s && s.npcAggroChance != null) { npcAggroChance = Number(s.npcAggroChance); const ap = document.getElementById('aggroPct'); if (ap) ap.textContent = Math.round(npcAggroChance*100) + '%'; const ai = document.getElementById('aggroInput'); if (ai) ai.value = String(Math.round(npcAggroChance*100)); }
+      if (s && s.difficulty) {
+        const sel = document.getElementById('difficultySelect'); if (sel) sel.value = s.difficulty;
+      }
+    } catch (e) { console.warn(e); }
+  }
+
+  function resetDefaults() { applyDifficulty('medium'); saveSettings(); }
+
+  // ====== Hex Axial ======
+  const keyOf = (q,r) => `${q},${r}`;
+
+  function axialToPixel(q, r) {
+    const x = HEX * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
+    const y = HEX * (3/2 * r);
+    return { x, y };
+  }
+
+  function pixelToAxial(px, py) {
+    const q = (Math.sqrt(3)/3 * px - 1/3 * py) / HEX;
+    const r = (2/3 * py) / HEX;
+    return hexRound(q, r);
+  }
+
+  function hexRound(q, r) {
+    let x = q, z = r, y = -x - z;
+    let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
+    const x_diff = Math.abs(rx - x), y_diff = Math.abs(ry - y), z_diff = Math.abs(rz - z);
+    if (x_diff > y_diff && x_diff > z_diff) rx = -ry - rz;
+    else if (y_diff > z_diff) ry = -rx - rz;
+    else rz = -rx - ry;
+    return { q: rx, r: rz };
+  }
+
+  function dist(aq, ar, bq, br) {
+    const dq = aq - bq;
+    const dr = ar - br;
+    return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) / 2;
+  }
+
+  function inBoard(q,r) { return dist(0,0,q,r) <= R; }
+
+  // ====== 產生盤面 ======
+  function regenTiles() {
+    tiles = new Map();
+    for (let q = -R; q <= R; q++) {
+      for (let r = -R; r <= R; r++) {
+        if (!inBoard(q,r)) continue;
+        const stat = STATS[(Math.random()*STATS.length)|0];
+        const sign = Math.random() < 0.5 ? 1 : -1;
+        tiles.set(keyOf(q,r), { stat, sign });
+      }
+    }
+    updateHUD();
+  }
+
+  // 初始化角色選單按鈕
+  function buildCharButtons() {
+    const wrap = document.getElementById('charBtns');
+    wrap.innerHTML = '';
+    charButtons = [];
+    for (const c of CHARS) {
+      const b = document.createElement('button');
+      b.textContent = c.name;
+      b.addEventListener('click', () => {
+        if (inGame) return;
+        selectedChar = c.name;
+        // 更新玩家 stats 與名稱顯示
+        player.name = c.name;
+        player.stats = Object.assign({}, c.stats);
+        updateHUD();
+      });
+      wrap.appendChild(b);
+      charButtons.push(b);
+    }
+  }
+
+  // ====== 隨機一個合法格（可避開某座標） ======
+  function randomTile(excludes = new Set()) {
+    const keys = Array.from(tiles.keys()).filter(k => !excludes.has(k));
+    return keys[(Math.random()*keys.length)|0];
+  }
+
+  // 在盤面隨機放置 npcList（取 CHARS 中非玩家的角色）
+  function placeNpcList() {
+    npcList = [];
+    const ex = new Set([ keyOf(player.q, player.r) ]);
+    const pool = CHARS.filter(c => c.name !== selectedChar).slice();
+    for (const c of pool) {
+      const k = randomTile(ex);
+      ex.add(k);
+      const [nq,nr] = k.split(',').map(Number);
+      const np = axialToPixel(nq, nr);
+      npcList.push({ name: c.name, stats: Object.assign({}, c.stats), q: nq, r: nr, x: np.x, y: np.y, tx: np.x, ty: np.y, intent: null, moving: false });
+    }
+  }
+
+  // ====== NPC 屬性：做出偏科但可玩 ======
+  function rollNpcStats() {
+    // 先全部 4~10
+    const s = {};
+    for (const k of STATS) s[k] = 4 + ((Math.random()*7)|0);
+
+    // 再選 2 個屬性強化（12~18）
+    const picks = STATS.slice().sort(() => Math.random()-0.5).slice(0,2);
+    for (const k of picks) s[k] = 12 + ((Math.random()*7)|0);
+
+    // 再選 1 個屬性弱化（1~4）
+    const weak = STATS.filter(x => !picks.includes(x))[(Math.random()*4)|0];
+    s[weak] = 1 + ((Math.random()*4)|0);
+
+    npc.stats = s;
+  }
+
+  // ====== 世界<->螢幕 ======
+  function worldToScreen(wx, wy) {
+    return { x: (wx + cam.x) * cam.zoom + canvas.width/2,
+             y: (wy + cam.y) * cam.zoom + canvas.height/2 };
+  }
+  function screenToWorld(sx, sy) {
+    return { x: (sx - canvas.width/2) / cam.zoom - cam.x,
+             y: (sy - canvas.height/2) / cam.zoom - cam.y };
+  }
+
+  // ====== HUD ======
+  function fmtStats(stats) {
+    return `STR ${stats.STR}　AGL ${stats.AGL}　VIT ${stats.VIT}\nDEX ${stats.DEX}　LUK ${stats.LUK}　INT ${stats.INT}`;
+  }
+
+  function updateHUD() {
+    HUD.posTxt.textContent = `(${player.q}, ${player.r})`;
+    HUD.npcPosTxt.textContent = npcList.length ? `多名 NPC` : `(${npc.q}, ${npc.r})`;
+    HUD.winTxt.textContent = String(wins);
+    HUD.stateTxt.innerHTML = gameOver ? `<span class="ng">Game Over</span>` : `<span class="ok">進行中</span>`;
+
+    const t = tiles.get(keyOf(player.q, player.r));
+    if (t) {
+      const signTxt = t.sign === 1 ? "+" : "−";
+      HUD.tileTxt.innerHTML = `<span class="tag ${t.sign===1?"good":"bad"}">${t.stat} ${signTxt}</span>`;
+      HUD.ruleTxt.textContent = t.sign === 1 ? "正格：比大" : "負格：比小";
+    } else {
+      HUD.tileTxt.textContent = "-";
+      HUD.ruleTxt.textContent = "-";
+    }
+
+    HUD.statsTxt.textContent = fmtStats(player.stats);
+    HUD.npcStatsTxt.textContent = npcList.length ? npcList.map(n=>`${n.name}: ${n.stats.STR}/${n.stats.AGL}/${n.stats.VIT}/${n.stats.DEX}/${n.stats.LUK}/${n.stats.INT}`).join('\n') : fmtStats(npc.stats);
+  }
+
+  // ====== 背景繪製 ======
+  function drawBackground() {
+    // draw full-canvas background according to boardBgMode
+    if (boardBgMode === 'none') {
+      // subtle dark fill (already canvas background), do nothing
+      return;
+    }
+
+    if (boardBgMode === 'grid') {
+      // draw faint grid (spacing 跟 HEX 一致)
+      const gap = HEX; // grid spacing
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += gap) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += gap) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (boardBgMode === 'wood') {
+      // wood: warm gradient + subtle grain lines
+      const g = ctx.createLinearGradient(0,0,0,canvas.height);
+      g.addColorStop(0, '#191107');
+      g.addColorStop(1, '#2b1706');
+      ctx.fillStyle = g;
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.lineWidth = 1.2;
+      const lines = Math.floor(canvas.height / 18);
+      for (let i=0;i<lines;i++) {
+        const y = (i + 0.5) * (canvas.height / lines) + (Math.sin(i*0.7) * 6);
+        ctx.beginPath();
+        ctx.moveTo(0, y + Math.sin(i)*4);
+        const cp1x = canvas.width * 0.3; const cp2x = canvas.width * 0.6;
+        ctx.bezierCurveTo(cp1x, y - 8, cp2x, y + 8, canvas.width, y + Math.cos(i)*3);
+        ctx.stroke();
+      }
+      // darker streaks
+      ctx.globalAlpha = 0.06;
+      for (let s=0;s<12;s++){
+        const y = Math.random()*canvas.height;
+        ctx.beginPath(); ctx.moveTo(-40,y); ctx.lineTo(canvas.width+40, y + (Math.random()*30-15)); ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (boardBgMode === 'stone') {
+      // stone: layered blotches and subtle vignette
+      ctx.fillStyle = '#0d1013';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.save();
+      for (let i=0;i<80;i++){
+        const rw = canvas.width * (0.06 + Math.random()*0.18);
+        const rh = canvas.height * (0.04 + Math.random()*0.12);
+        const x = Math.random() * canvas.width;
+        const y = Math.random() * canvas.height;
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, Math.max(rw, rh));
+        const c1 = `rgba(${60+Math.random()*30|0},${60+Math.random()*30|0},${70+Math.random()*30|0},${0.08+Math.random()*0.08})`;
+        const c2 = `rgba(${20+Math.random()*20|0},${20+Math.random()*20|0},${30+Math.random()*20|0},0)`;
+        grad.addColorStop(0, c1);
+        grad.addColorStop(1, c2);
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.ellipse(x, y, rw, rh, Math.random()*Math.PI, 0, Math.PI*2); ctx.fill();
+      }
+      // subtle vignette
+      const vg = ctx.createRadialGradient(canvas.width/2, canvas.height/2, Math.min(canvas.width, canvas.height)*0.2, canvas.width/2, canvas.height/2, Math.max(canvas.width, canvas.height)/1.2);
+      vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.28)');
+      ctx.fillStyle = vg; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.restore();
+      return;
+    }
+
+    if (boardBgMode === 'image' && boardBgImage) {
+      const img = boardBgImage;
+      // choose cover scale so image fills canvas
+      const cw = canvas.width, ch = canvas.height;
+      const iw = img.width, ih = img.height;
+      const scale = Math.max(cw/iw, ch/ih);
+      const dw = iw * scale, dh = ih * scale;
+
+      if (boardBgFollowCam) {
+        // offset image by camera position for natural movement (parallax)
+        const ox = cam.x * cam.zoom * boardBgParallax;
+        const oy = cam.y * cam.zoom * boardBgParallax;
+        const x = (cw - dw) / 2 + ox;
+        const y = (ch - dh) / 2 + oy;
+        ctx.save(); ctx.globalAlpha = 0.92; ctx.drawImage(img, x, y, dw, dh); ctx.restore();
+      } else {
+        // static cover
+        const x = (cw - dw) / 2;
+        const y = (ch - dh) / 2;
+        ctx.save(); ctx.globalAlpha = 0.92; ctx.drawImage(img, x, y, dw, dh); ctx.restore();
+      }
+      return;
+    }
+  }
+
+  // 嘗試載入專案內每位角色對應的 PNG（檔名需與角色名稱相同，例如 魯拉拉.png）
+  function loadCharImages() {
+    for (const c of CHARS) {
+      const name = c.name;
+      const path = `image/${name}.png`;
+      const img = new Image();
+      img.onload = () => { CHAR_IMAGES.set(name, img); };
+      img.onerror = () => { /* 忽略不存在的檔案，會回退至預設圓形繪製 */ };
+      img.src = encodeURI(path);
+    }
+  }
+
+  // ====== 判定：比大/比小，平手用 LUK 加權擲骰 ======
+  function lukTieBreak(aLuk, bLuk) {
+    // 1~20 + LUK
+    const aRoll = 1 + ((Math.random()*20)|0) + aLuk;
+    const bRoll = 1 + ((Math.random()*20)|0) + bLuk;
+    return { aRoll, bRoll, winner: aRoll === bRoll ? (Math.random()<0.5?"A":"B") : (aRoll > bRoll ? "A" : "B") };
+  }
+
+  function resolveBattle(tile, p, e) {
+    const stat = tile.stat;
+    const sign = tile.sign; // +1 比大 / -1 比小
+    const pv = p.stats[stat];
+    const ev = e.stats[stat];
+
+    let winner = null; // "P" or "E"
+    let reason = "";
+
+    if (pv === ev) {
+      const tb = lukTieBreak(p.stats.LUK, e.stats.LUK);
+      winner = (tb.winner === "A") ? "P" : "E";
+      reason = `平手 → LUK 擲骰\n玩家：d20+LUK = ${tb.aRoll}\nNPC：d20+LUK = ${tb.bRoll}`;
+    } else {
+      if (sign === 1) winner = (pv > ev) ? "P" : "E";
+      else winner = (pv < ev) ? "P" : "E";
+      reason = sign === 1 ? "正格：比大" : "負格：比小";
+    }
+
+    return { stat, sign, pv, ev, winner, reason };
+  }
+
+  // ====== 遭遇：玩家到 NPC 格子才觸發 ======
+  function onMeetNpc() {
+    // Deprecated: encounter handled in checkEncounters now.
+  }
+
+  // ====== 移動 ======
+  // 玩家嘗試移動：設定 intent（不立即變更座標），並開始本回合
+  function tryMoveTo(q, r) {
+    if (!inBoard(q,r)) return;
+    if (player.moving || npcList.some(n=>n.moving)) return;
+    if (gameOver) return;
+    if (dist(player.q, player.r, q, r) !== 1) return;
+
+    player.intent = { q, r };
+    beginTurn();
+  }
+
+  // 選擇單一 NPC 的 intent
+  // allowOverlap: 若 true，允許考慮移動到玩家目前格（即可與玩家重疊）
+  function chooseNpcIntentFor(n, reserved, allowOverlap=false, riskChance=null, aggressive=false) {
+    const opts = [];
+    // neighbours
+    const neigh = [ [1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1] ];
+    for (const [dq,dr] of neigh) {
+      const nq = n.q + dq, nr = n.r + dr;
+      if (!inBoard(nq, nr)) continue;
+      if (dist(nq, nr, n.q, n.r) !== 1) continue;
+      const key = keyOf(nq, nr);
+      if (reserved.has(key)) continue;
+      opts.push({ q: nq, r: nr });
+    }
+
+    // 若無任何合法選項，才留原地
+    if (opts.length === 0) return { q: n.q, r: n.r, risky: false };
+
+    // 若 aggressive：尋找對 NPC 有利（advantageous）的選項
+    if (aggressive) {
+      const fav = [];
+      for (const o of opts) {
+        // 若與玩家重疊也納入考慮（殺人的機會）
+        const tile = tiles.get(keyOf(o.q, o.r));
+        if (!tile) continue;
+        const stat = tile.stat;
+        const sign = tile.sign;
+        const pv = player.stats[stat];
+        const ev = n.stats[stat];
+        if (pv !== undefined && ev !== undefined) {
+          if (sign === 1 && ev > pv) fav.push(o);
+          if (sign === -1 && ev < pv) fav.push(o);
+        }
+        // 若位置與玩家相同，且該格對 NPC 有利，也視為優先
+        if (o.q === player.q && o.r === player.r) fav.push(o);
+      }
+      if (fav.length > 0) return Object.assign(fav[(Math.random() * fav.length) | 0], { aggressive: true });
+      // 找不到優勢格，退回原始行為
+    }
+
+    // 有機率選擇「劣勢格／重疊」以讓玩家有擊殺機會（risk 動作）
+    const rc = (riskChance == null) ? npcRiskChance : riskChance;
+    if (Math.random() < rc) {
+      // 找出對 NPC 不利的選項（或直接與玩家重疊）
+      const risky = [];
+      for (const o of opts) {
+        // 若與玩家重疊視為高風險
+        if (o.q === player.q && o.r === player.r) { risky.push(o); continue; }
+        const tile = tiles.get(keyOf(o.q, o.r));
+        if (!tile) continue;
+        const stat = tile.stat;
+        const sign = tile.sign;
+        const pv = player.stats[stat];
+        const ev = n.stats[stat];
+        // 若此格對 NPC 不利（玩家在該屬性上優於 NPC），視為 risky
+        if (pv !== undefined && ev !== undefined) {
+          if (sign === 1 && pv > ev) risky.push(o);
+          if (sign === -1 && pv < ev) risky.push(o);
+        }
+      }
+      if (risky.length > 0) return Object.assign(risky[(Math.random() * risky.length) | 0], { risky: true });
+      // 若找不到 risky，仍可隨機選一格（維持亂數移動）
+    }
+
+    return Object.assign(opts[(Math.random() * opts.length) | 0], { risky: false });
+  }
+
+  // 為所有 NPC 選擇 intent（避免互相選到同一格）
+  function chooseAllNpcIntents() {
+    const reserved = new Set();
+
+    // shuffle NPC order for fairness
+    const order = npcList.slice().sort(() => Math.random() - 0.5);
+
+    // 保底：至少選一隻 NPC 為高風險（更可能重疊或選擇劣勢格）
+    const forcedIdx = order.length > 0 ? Math.floor(Math.random() * order.length) : -1;
+    // small chance to pick an aggressive NPC that will try to seek advantageous tiles to kill player
+    const aggressiveIdx = (Math.random() < npcAggroChance && order.length>0) ? Math.floor(Math.random() * order.length) : -1;
+
+    for (let i = 0; i < order.length; i++) {
+      const n = order[i];
+      // 若為 forced，則提升其風險權重與允許重疊
+      const isForced = (i === forcedIdx);
+      const isAggressive = (i === aggressiveIdx);
+      const allowOverlap = isForced ? true : (Math.random() < npcRiskChance) || isAggressive;
+      const useRiskChance = isForced ? Math.max(npcRiskChance, 0.95) : null;
+      const intent = chooseNpcIntentFor(n, reserved, allowOverlap, useRiskChance, isAggressive);
+      const idx = npcList.findIndex(x => x === n);
+      if (idx !== -1) {
+        // intent 可能帶有 .risky 標記
+        npcList[idx].intent = intent;
+        // 實際 intent 決定時，清除先前的預測（避免混淆）
+        npcList[idx].preview = null;
+        reserved.add(keyOf(intent.q, intent.r));
+      }
+    }
+  }
+
+  // 為所有 NPC 計算下一回合的預測 intent（在 NPC 靜止時顯示，讓玩家有機會預判）
+  function chooseAllNpcPreviewIntents() {
+    const reserved = new Set();
+
+    const order = npcList.slice().sort(() => Math.random() - 0.5);
+    for (const n of order) {
+      const allowOverlap = Math.random() < npcRiskChance;
+      const intent = chooseNpcIntentFor(n, reserved, allowOverlap);
+      const idx = npcList.findIndex(x => x === n);
+      if (idx !== -1) {
+        npcList[idx].preview = intent; // intent 可能帶有 .risky
+        reserved.add(keyOf(intent.q, intent.r));
+      }
+    }
+  }
+
+  // 開始回合：收集所有 intents 並開始動畫
+  function beginTurn() {
+    if (!player.intent) return;
+    // 決定所有 NPC intent
+    chooseAllNpcIntents();
+    applyIntents();
+  }
+
+  // 套用 intent：設定 tx/ty 並標記 moving（包含所有 npcList）
+  function applyIntents() {
+    // player
+    const pq = player.intent.q, pr = player.intent.r;
+    const pp = axialToPixel(pq, pr);
+    player.tx = pp.x; player.ty = pp.y;
+    player.moving = true;
+
+    // npcs
+    for (const n of npcList) {
+      if (!n.intent) n.intent = { q: n.q, r: n.r };
+      const np = axialToPixel(n.intent.q, n.intent.r);
+      n.tx = np.x; n.ty = np.y;
+      n.moving = true;
+    }
+
+    turnActive = true;
+    updateHUD();
+  }
+
+  // 回合結束：把 intent 落實到正式座標並清除 intent
+  function finishTurn() {
+    if (player.intent) {
+      player.q = player.intent.q; player.r = player.intent.r;
+      player.intent = null;
+    }
+    // 把所有 npcList 的 intent 落實
+    for (const n of npcList) {
+      if (n.intent) {
+        n.q = n.intent.q; n.r = n.intent.r;
+        n.intent = null;
+      }
+    }
+    updateHUD();
+    turnActive = false;
+    // 計算下一回合的預測 intent（在 NPC 靜止時顯示，讓玩家有機會預判）
+    if (!gameOver && inGame) chooseAllNpcPreviewIntents();
+    checkEncounters();
+  }
+
+  // 檢查遭遇（支援多 NPC）並處理結果
+  function checkEncounters() {
+    // 找到玩家所在的 NPC（若有）
+    const idx = npcList.findIndex(n => n.q === player.q && n.r === player.r);
+    if (idx === -1) return;
+
+    const target = npcList[idx];
+    const tile = tiles.get(keyOf(player.q, player.r));
+    if (!tile) return;
+
+    const res = resolveBattle(tile, player, target);
+    const signTxt = tile.sign === 1 ? "+" : "−";
+    const header = `【遭遇戰】格子：${res.stat} ${signTxt}（${tile.sign===1?"比大":"比小"}）`;
+    const line = `玩家 ${player.name}：${res.pv}   vs   NPC ${target.name}：${res.ev}`;
+    const outcome = res.winner === "P" ? "玩家勝利 ✅" : "玩家落敗 ❌";
+
+    HUD.logTxt.textContent = `${header}\n${line}\n${outcome}\n\n${res.reason}`;
+    if (res.winner === "P") {
+      wins += 1;
+      // 擊敗 NPC：從場上移除該 NPC
+      npcList.splice(idx, 1);
+      updateHUD();
+      // 檢查是否全部清除
+      if (npcList.length === 0) {
+        overallWin = true;
+        gameOver = true;
+        HUD.logTxt.textContent += "\n\n你已擊敗所有 NPC，勝利！請按「重開一局」重新選角。";
+      }
+    } else {
+      gameOver = true;
+      updateHUD();
+    }
+  }
+
+  // ====== 六角繪製 ======
+  function hexCorners(cx, cy) {
+    const pts = [];
+    for (let i=0; i<6; i++) {
+      const ang = (Math.PI/180) * (60*i - 30);
+      pts.push({ x: cx + HEX * Math.cos(ang), y: cy + HEX * Math.sin(ang) });
+    }
+    return pts;
+  }
+
+  function drawHex(cx, cy, fill, stroke, lineW=1) {
+    const pts = hexCorners(cx, cy);
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i=1;i<6;i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineW;
+    ctx.stroke();
+  }
+
+  function drawText(txt, x, y, size=12, color="#e6e6e6", bold=false) {
+    ctx.font = `${bold ? "700 " : ""}${size}px system-ui, -apple-system, "Noto Sans TC", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (textReadMode === 'cool') {
+      const metrics = ctx.measureText(txt);
+      const textWidth = metrics.width;
+      const padX = size * 0.6;
+      const padY = size * 0.5;
+      const w = textWidth + padX * 2;
+      const h = size + padY * 2;
+      const rx = Math.max(6, size * 0.4);
+      ctx.save();
+      ctx.fillStyle = 'rgba(100,150,220,0.16)';
+      roundRect(ctx, x - w/2, y - h/2, w, h, rx);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = '#071226';
+      ctx.fillText(txt, x, y);
+    } else {
+      ctx.fillStyle = color;
+      // draw subtle stroke for readability
+      ctx.lineWidth = Math.max(1, size * 0.12);
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.strokeText(txt, x, y);
+      ctx.fillText(txt, x, y);
+    }
+  }
+
+  // helper: draw rounded rect path (does not fill/stroke)
+  function roundRect(ctx, x, y, w, h, r) {
+    const radius = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+  }
+
+  // ====== Resize / Camera ======
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width * devicePixelRatio);
+    canvas.height = Math.floor(rect.height * devicePixelRatio);
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  }
+
+  function recenter() {
+    const p = axialToPixel(player.q, player.r);
+    cam.x = -p.x;
+    cam.y = -p.y;
+  }
+
+  // ====== 初始化/重開 ======
+  function restart() {
+    // reset to pre-game selection state
+    gameOver = false;
+    overallWin = false;
+    wins = 0;
+    HUD.logTxt.textContent = "（請先選擇角色，然後按「開始遊戲」）";
+
+    regenTiles();
+
+    // 玩家起點
+    player.q = 0; player.r = 0;
+    let p = axialToPixel(player.q, player.r);
+    player.x = player.tx = p.x;
+    player.y = player.ty = p.y;
+    player.moving = false;
+    player.intent = null;
+
+    // clear NPCs until game starts
+    npcList = [];
+
+    turnActive = false;
+    inGame = false;
+    // enable character buttons
+    for (const b of charButtons) b.disabled = false;
+
+    recenter();
+    updateHUD();
+  }
+
+  // 開始遊戲：鎖定選角並放置 NPC
+  function startGame() {
+    if (inGame) return;
+    // 必須先選角
+    const def = CHARS.find(c=>c.name===selectedChar);
+    if (!def) { alert('請先選擇角色'); return; }
+    // lock in
+    player.name = def.name;
+    player.stats = Object.assign({}, def.stats);
+    // place NPCs
+    placeNpcList();
+    inGame = true;
+    gameOver = false;
+    overallWin = false;
+    wins = 0;
+    HUD.logTxt.textContent = '遊戲開始！';
+    // disable char buttons
+    for (const b of charButtons) b.disabled = true;
+    recenter();
+    updateHUD();
+  }
+
+  // ====== 互動 ======
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const w = screenToWorld(sx, sy);
+    const a = pixelToAxial(w.x, w.y);
+    const k = keyOf(a.q, a.r);
+    hoverKey = tiles.has(k) ? k : null;
+
+    // 顯示角色 tooltip（若滑鼠靠近玩家或任一 NPC）
+    const clientX = e.clientX, clientY = e.clientY;
+    let shown = false;
+    // check player
+    const psp = worldToScreen(player.x, player.y);
+    const pd = Math.hypot(psp.x - sx, psp.y - sy);
+    if (pd <= 20) {
+      charTooltip.style.left = (clientX + 12) + 'px';
+      charTooltip.style.top = (clientY + 12) + 'px';
+      charTooltip.textContent = `${player.name}\n${fmtStats(player.stats)}`;
+      charTooltip.style.display = 'block';
+      shown = true;
+    } else {
+      // check NPCs
+      for (const n of npcList) {
+        const nsp = worldToScreen(n.x, n.y);
+        const nd = Math.hypot(nsp.x - sx, nsp.y - sy);
+        if (nd <= 20) {
+          charTooltip.style.left = (clientX + 12) + 'px';
+          charTooltip.style.top = (clientY + 12) + 'px';
+          charTooltip.textContent = `${n.name}\nSTR ${n.stats.STR} AGL ${n.stats.AGL} VIT ${n.stats.VIT}\nDEX ${n.stats.DEX} LUK ${n.stats.LUK} INT ${n.stats.INT}`;
+          charTooltip.style.display = 'block';
+          shown = true;
+          break;
+        }
+      }
+    }
+    if (!shown) charTooltip.style.display = 'none';
+  });
+
+  canvas.addEventListener('mouseleave', () => { charTooltip.style.display = 'none'; });
+
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const w = screenToWorld(sx, sy);
+    const a = pixelToAxial(w.x, w.y);
+    tryMoveTo(a.q, a.r);
+  });
+
+  // 鍵盤 WASD 控制：W 上 (0,-1), S 下 (0,1), A 左 (-1,0), D 右 (1,0)
+  window.addEventListener('keydown', (e) => {
+    // 不在輸入欄時才攔截
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) return;
+    if (!inGame || gameOver) return;
+    const k = e.key.toLowerCase();
+    const map = { 'w': [0,-1], 's': [0,1], 'a': [-1,0], 'd': [1,0] };
+    if (!(k in map)) return;
+    const [dq, dr] = map[k];
+    const nq = player.q + dq, nr = player.r + dr;
+    tryMoveTo(nq, nr);
+  });
+
+  // 背景按鈕與上傳
+  document.getElementById('bgNone').addEventListener('click', () => { boardBgMode = 'none'; boardBgImage = null; });
+  document.getElementById('bgGrid').addEventListener('click', () => { boardBgMode = 'grid'; boardBgImage = null; });
+  document.getElementById('bgWood').addEventListener('click', () => { boardBgMode = 'wood'; boardBgImage = null; });
+  document.getElementById('bgStone').addEventListener('click', () => { boardBgMode = 'stone'; boardBgImage = null; });
+  document.getElementById('toggleTextMode').addEventListener('click', () => {
+    const btn = document.getElementById('toggleTextMode');
+    textReadMode = (textReadMode === 'stroke') ? 'cool' : 'stroke';
+    btn.textContent = textReadMode === 'stroke' ? '文字可讀模式：描邊' : '文字可讀模式：冷透底';
+  });
+  document.getElementById('bgFile').addEventListener('change', (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const img = new Image();
+    img.onload = () => { boardBgImage = img; boardBgMode = 'image'; URL.revokeObjectURL(img._url); };
+    img.onerror = () => { alert('載入圖片失敗'); };
+    img._url = URL.createObjectURL(f);
+    img.src = img._url;
+  });
+
+  window.addEventListener('resize', resize);
+
+  document.getElementById('regen').addEventListener('click', () => {
+    regenTiles();
+    updateHUD();
+  });
+  document.getElementById('recenter').addEventListener('click', recenter);
+  document.getElementById('restart').addEventListener('click', restart);
+
+  // ====== Render Loop ======
+  function loop() {
+    const speed = 0.18;
+
+    // 玩家動畫
+    player.x += (player.tx - player.x) * speed;
+    player.y += (player.ty - player.y) * speed;
+    const pdx = Math.abs(player.tx - player.x);
+    const pdy = Math.abs(player.ty - player.y);
+    if (player.moving && pdx < 0.2 && pdy < 0.2) {
+      player.x = player.tx; player.y = player.ty;
+      player.moving = false;
+    }
+    
+    // NPCs 動畫
+    for (const n of npcList) {
+      if (!n.moving) continue;
+      n.x += (n.tx - n.x) * speed;
+      n.y += (n.ty - n.y) * speed;
+      const ndx = Math.abs(n.tx - n.x);
+      const ndy = Math.abs(n.ty - n.y);
+      if (ndx < 0.2 && ndy < 0.2) {
+        n.x = n.tx; n.y = n.ty; n.moving = false;
+      }
+    }
+
+    // 回合完成：玩家與所有 NPC 動畫皆完成且曾經有回合在進行
+    if (turnActive && !player.moving && npcList.every(n => !n.moving)) {
+      finishTurn();
+    }
+
+    // 相機柔跟
+    const targetCamX = -player.x;
+    const targetCamY = -player.y;
+    cam.x += (targetCamX - cam.x) * 0.08;
+    cam.y += (targetCamY - cam.y) * 0.08;
+
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#0b0e14";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // 背景圖層（在 tiles 下方）
+    drawBackground();
+
+    // draw tiles
+    for (const [k, t] of tiles.entries()) {
+      const [q,r] = k.split(',').map(Number);
+      const wp = axialToPixel(q, r);
+      const sp = worldToScreen(wp.x, wp.y);
+
+      const fill = t.sign === 1 ? "rgba(60, 140, 90, 0.20)" : "rgba(170, 70, 70, 0.18)";
+      let stroke = "rgba(80, 90, 110, 0.95)";
+      let lw = 1.2;
+
+      if (hoverKey === k) { stroke = "rgba(230, 230, 230, 0.9)"; lw = 2; }
+
+      // 可走相鄰格提示
+      if (!player.moving && !gameOver && dist(player.q, player.r, q, r) === 1) {
+        stroke = "rgba(200, 200, 200, 0.35)";
+      }
+
+      // 若此格有 NPC（任一）則標記
+      if (npcList.some(n=>n.q===q && n.r===r)) {
+        lw = 2;
+        stroke = "rgba(255, 120, 120, 0.9)";
+      }
+
+      drawHex(sp.x, sp.y, fill, stroke, lw);
+
+      const signTxt = t.sign === 1 ? "+" : "−";
+      drawText(`${t.stat} ${signTxt}`, sp.x, sp.y, 12, "rgba(230,230,230,0.85)", true);
+    }
+
+    // draw NPC (red)
+    // draw NPCs
+    for (const n of npcList) {
+      // draw preview (顯示 NPC 在靜止時的下一步預判)
+      if (n.preview && !n.moving) {
+        const tp = axialToPixel(n.preview.q, n.preview.r);
+        const tsp = worldToScreen(tp.x, tp.y);
+        ctx.save();
+        ctx.setLineDash([6,6]);
+        ctx.beginPath();
+        ctx.arc(tsp.x, tsp.y, HEX * 0.85, 0, Math.PI * 2);
+          ctx.strokeStyle = n.preview.risky ? 'rgba(255,110,110,0.95)' : (n.preview.aggressive ? 'rgba(255,160,60,0.95)' : 'rgba(120,180,255,0.95)');
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+      // 若此 NPC 的 intent 被判定為 risky（本回合實際 intent），於目標格畫顯眼圓環
+      if (n.intent && n.intent.risky) {
+        const tp2 = axialToPixel(n.intent.q, n.intent.r);
+        const tsp2 = worldToScreen(tp2.x, tp2.y);
+        ctx.save();
+        ctx.setLineDash([8,6]);
+        ctx.beginPath();
+        ctx.arc(tsp2.x, tsp2.y, HEX * 0.95, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,110,110,0.95)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.restore();
+      }
+      const sp = worldToScreen(n.x, n.y);
+      const img = CHAR_IMAGES.get(n.name);
+      if (img && img.complete && img.naturalWidth) {
+        // draw image with bottom-center anchored to tile (小幅上移以避開陰影)
+        const targetH = HEX * 2; // 高度為兩格高
+        const scale = targetH / img.naturalHeight;
+        const drawW = img.naturalWidth * scale;
+        const drawH = targetH;
+        const drawX = sp.x - drawW / 2;
+        const drawY = sp.y - drawH + 8; // 圖底部對齊格子，往上 8px 讓陰影露出
+
+        // shadow below
+        ctx.beginPath();
+        ctx.ellipse(sp.x, sp.y + 18, Math.max(12, drawW * 0.18), Math.max(6, drawH * 0.08), 0, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fill();
+
+        ctx.drawImage(img, drawX, drawY, drawW, drawH);
+        drawText(n.name, sp.x, drawY - 12, 12, "rgba(255,200,200,0.95)", true);
+      } else {
+        // fallback: 原本的圓形繪製
+        // shadow
+        ctx.beginPath();
+        ctx.ellipse(sp.x, sp.y + 18, 16, 6, 0, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, 16, 0, Math.PI*2);
+        ctx.fillStyle = "#ff8a8a";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(60,20,20,0.95)";
+        ctx.stroke();
+
+        drawText(n.name, sp.x, sp.y - 30, 12, "rgba(255,200,200,0.95)", true);
+      }
+    }
+
+    // draw Player
+    {
+      const sp = worldToScreen(player.x, player.y);
+      const img = CHAR_IMAGES.get(player.name);
+      if (img && img.complete && img.naturalWidth) {
+        const targetH = HEX * 2; // 高度為兩格高
+        const scale = targetH / img.naturalHeight;
+        const drawW = img.naturalWidth * scale;
+        const drawH = targetH;
+        const drawX = sp.x - drawW / 2;
+        const drawY = sp.y - drawH + 8;
+
+        // shadow
+        ctx.beginPath();
+        ctx.ellipse(sp.x, sp.y + 18, Math.max(12, drawW * 0.18), Math.max(6, drawH * 0.08), 0, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fill();
+
+        ctx.drawImage(img, drawX, drawY, drawW, drawH);
+        drawText(player.name, sp.x, drawY - 12, 12, "rgba(230,230,230,0.9)", true);
+      } else {
+        // fallback: 原本的圓形繪製
+        // shadow
+        ctx.beginPath();
+        ctx.ellipse(sp.x, sp.y + 18, 16, 6, 0, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fill();
+
+        // body
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, 16, 0, Math.PI*2);
+        ctx.fillStyle = "#f3f7ff";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(20,30,50,0.9)";
+        ctx.stroke();
+
+        // little ears
+        ctx.beginPath();
+        ctx.moveTo(sp.x-10, sp.y-12);
+        ctx.lineTo(sp.x-18, sp.y-28);
+        ctx.lineTo(sp.x-6, sp.y-20);
+        ctx.closePath();
+        ctx.fillStyle = "#1c2333";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(sp.x+10, sp.y-12);
+        ctx.lineTo(sp.x+18, sp.y-28);
+        ctx.lineTo(sp.x+6, sp.y-20);
+        ctx.closePath();
+        ctx.fillStyle = "#1c2333";
+        ctx.fill();
+
+        drawText(player.name, sp.x, sp.y - 30, 12, "rgba(230,230,230,0.9)", true);
+      }
+    }
+
+    // game over or victory overlay
+    if (gameOver) {
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.restore();
+
+      const cx = canvas.width/2;
+      const cy = canvas.height/2;
+      if (overallWin) {
+        drawText("VICTORY!", cx, cy - 10, 34, "rgba(140, 255, 180, 0.95)", true);
+        drawText("已清除所有 NPC，按右側「重開一局」重新選角。", cx, cy + 26, 14, "rgba(230,230,230,0.9)", false);
+      } else {
+        drawText("GAME OVER", cx, cy - 10, 34, "rgba(255, 180, 180, 0.95)", true);
+        drawText("按右側「重開一局」再來", cx, cy + 26, 14, "rgba(230,230,230,0.9)", false);
+      }
+    }
+  }
+
+  // ====== Boot ======
+  function init() {
+    resize();
+    buildCharButtons();
+    // 設定預設選擇角色為第一位
+    const def = CHARS.find(c=>c.name===selectedChar) || CHARS[0];
+    player.name = def.name;
+    player.stats = Object.assign({}, def.stats);
+    restart();
+    // 建立專案圖片下拉
+    const sel = document.getElementById('projectImgs');
+    sel.innerHTML = '';
+    const noneOpt = document.createElement('option'); noneOpt.value=''; noneOpt.textContent='(無)'; sel.appendChild(noneOpt);
+    for (const p of PROJECT_IMAGES) {
+      const o = document.createElement('option'); o.value = p; o.textContent = p; sel.appendChild(o);
+    }
+    // 嘗試載入專案預設背景 unnamed.jpg（若存在）並設定為預設背景
+    (function tryLoadDefaultBg(){
+      const defPath = 'image/background/unnamed.jpg';
+      const img = new Image();
+      img.onload = () => { boardBgImage = img; boardBgMode = 'image'; boardBgFollowCam = true; };
+      img.onerror = () => { /* ignore if not present */ };
+      img.src = encodeURI(defPath);
+    })();
+    document.getElementById('applyProjectImg').addEventListener('click', () => {
+      const v = sel.value; if (!v) return; const img = new Image(); img.onload = ()=>{ boardBgImage = img; boardBgMode='image'; }; img.onerror = ()=>{ alert('載入專案圖片失敗：'+v); };
+      img.src = encodeURI(v);
+    });
+    // NPC 風險機率滑桿（可即時調整 npcRiskChance）
+    const riskRow = document.createElement('div');
+    riskRow.style.marginTop = '10px';
+    riskRow.innerHTML = `<div class="muted">NPC 風險移動機率： <span id="riskPct">${Math.round(npcRiskChance*100)}%</span></div>`;
+    const riskInput = document.createElement('input');
+    riskInput.id = 'riskInput';
+    riskInput.type = 'range'; riskInput.min = '0'; riskInput.max = '100'; riskInput.step = '5'; riskInput.value = String(Math.round(npcRiskChance*100));
+    riskInput.style.width = '100%';
+    riskInput.addEventListener('input', (e) => {
+      const v = Number(e.target.value);
+      setNpcRiskChance(v / 100);
+    });
+    riskRow.appendChild(riskInput);
+    document.getElementById('panel').appendChild(riskRow);
+
+    // Aggro chance slider (chance an NPC will try to find advantageous tile)
+    const aggroRow = document.createElement('div');
+    aggroRow.style.marginTop = '8px';
+    aggroRow.innerHTML = `<div class="muted">NPC 侵略機率（會找對自己有利的格子）： <span id="aggroPct">${Math.round(npcAggroChance*100)}%</span></div>`;
+    const aggroInput = document.createElement('input');
+    aggroInput.id = 'aggroInput'; aggroInput.type = 'range'; aggroInput.min='0'; aggroInput.max='100'; aggroInput.step='1'; aggroInput.value = String(Math.round(npcAggroChance*100));
+    aggroInput.style.width = '100%';
+    aggroInput.addEventListener('input', (e) => {
+      const v = Number(e.target.value);
+      npcAggroChance = v / 100;
+      document.getElementById('aggroPct').textContent = v + '%';
+    });
+    aggroRow.appendChild(aggroInput);
+    document.getElementById('panel').appendChild(aggroRow);
+
+    // Difficulty presets + save/reset UI
+    const diffRow = document.createElement('div');
+    diffRow.style.marginTop = '8px';
+    diffRow.innerHTML = `<div class="muted">難度預設：</div>`;
+    const diffSel = document.createElement('select'); diffSel.id = 'difficultySelect';
+    const optLow = document.createElement('option'); optLow.value='low'; optLow.textContent='低 (較少 risky)';
+    const optMed = document.createElement('option'); optMed.value='medium'; optMed.textContent='中 (平衡)';
+    const optHigh = document.createElement('option'); optHigh.value='high'; optHigh.textContent='高 (較多 risky)';
+    diffSel.appendChild(optLow); diffSel.appendChild(optMed); diffSel.appendChild(optHigh);
+    diffSel.addEventListener('change', (e) => applyDifficulty(e.target.value));
+    diffRow.appendChild(diffSel);
+
+    const btnSave = document.createElement('button'); btnSave.id='saveSettings'; btnSave.textContent='儲存設定'; btnSave.style.marginLeft='8px';
+    btnSave.addEventListener('click', saveSettings);
+    const btnReset = document.createElement('button'); btnReset.id='resetSettings'; btnReset.textContent='重設預設'; btnReset.style.marginLeft='6px';
+    btnReset.addEventListener('click', () => { resetDefaults(); HUD.logTxt.textContent='已重設為預設難度'; });
+    diffRow.appendChild(btnSave); diffRow.appendChild(btnReset);
+    document.getElementById('panel').appendChild(diffRow);
+    // apply loaded settings if any
+    loadSettings();
+    // start / restart button handlers
+    document.getElementById('startGame').addEventListener('click', () => {
+      startGame();
+    });
+    document.getElementById('restart').addEventListener('click', () => {
+      restart();
+    });
+    // 載入角色圖片（若 image/<角色名>.png 存在會自動使用）
+    loadCharImages();
+    requestAnimationFrame(loop);
+  }
+  init();
+})();
+</script>
+</body>
+</html>
