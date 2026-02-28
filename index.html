@@ -253,6 +253,14 @@
   let overallWin = false;
   let charButtons = [];
   const CHAR_IMAGES = new Map(); // name -> Image
+  // 中文角色名稱對應的英文檔名（可修改成你希望的 ascii 檔名）
+  const CHAR_FILENAME_MAP = {
+    '魯拉拉': 'rularala.png',
+    '烈火拳': 'liehuoquan.png',
+    '影迅':   'yingxun.png',
+    '智將':   'zhijiang.png',
+    '混沌':   'hundun.png',
+  };
   let npcRiskChance = 0.75; // NPC 有機率選擇劣勢或重疊（可由面板滑桿調整，預設 75%）
   let npcAggroChance = 0.08; // 每回合有小機率選一隻 NPC 追求優勢格並嘗試擊殺玩家（預設 8%）
   // difficulty presets map
@@ -544,11 +552,20 @@
   function loadCharImages() {
     for (const c of CHARS) {
       const name = c.name;
-      const path = `image/${name}.png`;
+      const eng = CHAR_FILENAME_MAP[name];
+      const tryPath = eng ? `image/${eng}` : null;
+      const fallbackPath = `image/${name}.png`;
       const img = new Image();
+      let triedFallback = false;
       img.onload = () => { CHAR_IMAGES.set(name, img); };
-      img.onerror = () => { /* 忽略不存在的檔案，會回退至預設圓形繪製 */ };
-      img.src = encodeURI(path);
+      img.onerror = () => {
+        if (!triedFallback) {
+          triedFallback = true;
+          img.onerror = () => { /* final fail */ };
+          img.src = encodeURI(fallbackPath);
+        }
+      };
+      img.src = encodeURI(tryPath || fallbackPath);
     }
   }
 
