@@ -4,7 +4,7 @@
 
 import { State, player } from './state.js';
 import { keyOf } from './hex.js';
-import { HUD, updateHUD } from './ui.js';
+import { HUD, updateHUD, showEndModal, queueBattleAnim } from './ui.js';
 import { stopBgm } from './bgm.js';
 
 // ── LUK 平手擲骰 ─────────────────────────────────────────
@@ -73,8 +73,9 @@ export function checkVictory() {
   if (State.npcList.length === 0) {
     State.overallWin = true;
     State.gameOver = true;
-    try { HUD.logTxt.textContent += "\n\n你已擊敗所有 Combatant NPC，勝利！請按「重開一局」重新選角。"; } catch (_e) {}
+    try { HUD.logTxt.textContent += "\n\n你已擊敗所有 Combatant NPC，勝利！"; } catch (_e) {}
     stopBgm();
+    try { showEndModal('勝利！', `你已擊敗所有 Combatant NPC，勝利！\n\n${HUD.logTxt.textContent || ''}`); } catch (e) { /* ignore */ }
   }
 }
 
@@ -94,23 +95,33 @@ export function checkEncounters() {
   const line      = `玩家 ${player.name}：${res.pv}   vs   NPC ${target.name}：${res.ev}`;
   const outcome   = res.winner === "P" ? "玩家勝利 ✅" : "玩家落敗 ❌";
 
-  HUD.logTxt.textContent = `${header}\n${line}\n${outcome}\n\n${res.reason}`;
+  // 先播放 VS 碰撞動畫，動畫結束後顯示勝負並處理狀態
+  (async () => {
+    await queueBattleAnim(
+      player.name, target.name,
+      { stat: res.stat, sign: tile.sign }, true,
+      { winner: res.winner === 'P' ? 'A' : 'B', pv: res.pv, ev: res.ev }
+    );
+    HUD.logTxt.textContent = `${header}\n${line}\n${outcome}\n\n${res.reason}`;
 
-  if (res.winner === "P") {
-    State.wins += 1;
-    const removed = npcList.splice(idx, 1);
-    addEliminationLog(`${removed[0].name} 被玩家 ${player.name} 擊敗，淘汰`);
-    updateHUD();
-    if (npcList.length === 0) {
-      State.overallWin = true;
+    if (res.winner === "P") {
+      State.wins += 1;
+      const removed = npcList.splice(idx, 1);
+      addEliminationLog(`${removed[0].name} 被玩家 ${player.name} 擊敗，淘汰`);
+      updateHUD();
+      if (npcList.length === 0) {
+        State.overallWin = true;
+        State.gameOver = true;
+        HUD.logTxt.textContent += "\n\n你已擊敗所有 NPC，勝利！";
+        stopBgm();
+        try { showEndModal('勝利！', `你已擊敗所有 NPC，勝利！\n\n${HUD.logTxt.textContent || ''}`); } catch (e) {}
+      }
+    } else {
       State.gameOver = true;
-      HUD.logTxt.textContent += "\n\n你已擊敗所有 NPC，勝利！請按「重開一局」重新選角。";
+      addEliminationLog(`${player.name} 被 NPC ${target.name} 擊敗，淘汰`);
+      updateHUD();
       stopBgm();
+      try { showEndModal('敗北', `你被 NPC ${target.name} 擊敗，遊戲結束。\n\n${HUD.logTxt.textContent || ''}`); } catch (e) {}
     }
-  } else {
-    State.gameOver = true;
-    addEliminationLog(`${player.name} 被 NPC ${target.name} 擊敗，淘汰`);
-    updateHUD();
-    stopBgm();
-  }
+  })();
 }

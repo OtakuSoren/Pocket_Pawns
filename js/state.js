@@ -2,12 +2,10 @@
 // state.js — 共享可變狀態（所有模組的唯一真實來源）
 // ============================================================
 
-import { CHARS } from './config.js';
-
 // ── 玩家物件 ─────────────────────────────────────────────
 export const player = {
-  name: CHARS[0].name,
-  stats: Object.assign({}, CHARS[0].stats),
+  name: '',
+  stats: { STR:8, AGL:8, VIT:8, DEX:8, LUK:8, INT:8 },
   q: 0, r: 0,
   x: 0, y: 0, tx: 0, ty: 0,
   moving: false,
@@ -68,8 +66,8 @@ export const State = {
   turnActive: false,
   envActive: false,
 
-  // 角色選擇
-  selectedChar: CHARS[0].name,
+  // 角色選擇（loadRoles 後由 init() 填入）
+  selectedChar: '',
 
   // NPC
   npcList: [],
@@ -81,6 +79,9 @@ export const State = {
   npcRiskChance: 0.75,
   npcAggroChance: 0.08,
   npcStayChance: 0.18,
+
+  // Knocker 行為設定：是否碰到邊界即淘汰（true）或改為回彈（false）
+  knockersEliminateOnOut: true,
 
   // 背景
   boardBgMode: 'none',
@@ -94,4 +95,9 @@ export const State = {
 
   // BGM
   bgmAutoPlay: false,
+
+  // 戰鬥動畫
+  battleAnimPlayer: true,   // 玩家參戰時顯示動畫
+  battleAnimNpc: true,      // NPC 對 NPC 時顯示動畫
+  battleLocked: false,      // 動畫播放期間鎖定玩家輸入
 };

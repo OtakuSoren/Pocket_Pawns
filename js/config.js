@@ -4,21 +4,8 @@
 
 export const STATS = ["STR","AGL","VIT","DEX","LUK","INT"];
 
-export const CHARS = [
-  { name: '魯拉拉', stats: { STR:13, AGL:7,  VIT:9,  DEX:1,  LUK:3,  INT:9  } },
-  { name: '烈火拳', stats: { STR:16, AGL:4,  VIT:10, DEX:2,  LUK:1,  INT:3  } },
-  { name: '影迅',   stats: { STR:5,  AGL:17, VIT:6,  DEX:12, LUK:8,  INT:4  } },
-  { name: '智將',   stats: { STR:4,  AGL:6,  VIT:8,  DEX:7,  LUK:5,  INT:18 } },
-  { name: '混沌',   stats: { STR:8,  AGL:8,  VIT:8,  DEX:8,  LUK:8,  INT:8  } },
-];
-
-export const CHAR_FILENAME_MAP = {
-  '魯拉拉': 'rularala.png',
-  '烈火拳': 'liehuoquan.png',
-  '影迅':   'yingxun.png',
-  '智將':   'zhijiang.png',
-  '混沌':   'hundun.png',
-};
+// 由 js/roleLoader.js 從 db/Role.csv 動態填入
+export const CHARS = [];
 
 export const PROJECT_IMAGES = [
   "image/background/ChatGPT Image 2026年2月28日 下午05_11_02.png",

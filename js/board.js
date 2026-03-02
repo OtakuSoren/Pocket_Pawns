@@ -2,7 +2,7 @@
 // board.js — 棋盤生成、圖片載入
 // ============================================================
 
-import { STATS, CHARS, CHAR_FILENAME_MAP, KNOCKER_PERSONA_STYLES } from './config.js';
+import { STATS, CHARS, KNOCKER_PERSONA_STYLES } from './config.js';
 import { State, CHAR_IMAGES, KNOCKER_IMAGES } from './state.js';
 import { keyOf, inBoard } from './hex.js';
 
@@ -35,9 +35,9 @@ export function loadKnockerImages() {
 export function loadCharImages() {
   for (const c of CHARS) {
     const name = c.name;
-    const eng = CHAR_FILENAME_MAP[name];
-    const tryPath = eng ? `image/${eng}` : null;
-    const fallbackPath = `image/${name}.png`;
+    // portrait 欄位來自 Role.csv，如 rularala.png；放在 image/Role/
+    const tryPath    = c.portrait ? `image/Role/${c.portrait}` : null;
+    const fallbackPath = `image/Role/${name}.png`;
     const img = new Image();
     let triedFallback = false;
     img.onload = () => { CHAR_IMAGES.set(name, img); };

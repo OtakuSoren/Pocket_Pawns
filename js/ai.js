@@ -6,7 +6,7 @@ import { STATS, CHARS, KNOCKER_PERSONA_STYLES, NPC_PERSONA_STYLES } from './conf
 import { State, player, npc } from './state.js';
 import { keyOf, axialToPixel, dist, inBoard } from './hex.js';
 import { randomTile } from './board.js';
-import { HUD, updateHUD } from './ui.js';
+import { HUD, updateHUD, showEndModal, queueBattleAnim, queueKnockoutAnim, waitAnimQueueEmpty } from './ui.js';
 import { stopBgm } from './bgm.js';
 import { resolveBetween, addEliminationLog, checkVictory, checkEncounters } from './combat.js';
 
@@ -608,7 +608,7 @@ export function startEnvironmentPhase() {
 }
 
 // ── 擊退處理（performKnockbackOn）───────────────────────
-export function performKnockbackOn(target, dirQ, dirR, forceKb = null) {
+export function performKnockbackOn(target, dirQ, dirR, forceKb = null, knocker = null) {
   // 鐵甲反彈護盾：任何單位被彈飛時反方向
   if (target.counterKnockback) {
     target.counterKnockback = false;
@@ -631,21 +631,45 @@ export function performKnockbackOn(target, dirQ, dirR, forceKb = null) {
   }
 
   if (eliminated) {
-    if (target === player) {
-      State.gameOver = true;
-      HUD.logTxt.textContent += '\n玩家被撞出界，淘汰！';
-      addEliminationLog(`${player.name} 被撞出界淘汰`);
-      stopBgm();
-    } else {
-      const idx = State.npcList.findIndex(n => n === target);
-      if (idx !== -1) {
-        addEliminationLog(`${target.name} 被撞出界淘汰`);
-        State.npcList.splice(idx, 1);
-        updateHUD();
-        checkVictory();
+    // 根據設定決定：越界是否淘汰（預設 true）
+    if (!State.knockersEliminateOnOut) {
+      // 取消越界淘汰，改為回彈處理：嘗試向相反方向移動 1 格，若不可則停留原地
+      HUD.logTxt.textContent += '\n回彈：取消越界淘汰，嘗試彈回';
+      const bounceQ = target.q - dirQ;
+      const bounceR = target.r - dirR;
+      if (inBoard(bounceQ, bounceR)) {
+        lastQ = bounceQ; lastR = bounceR;
+      } else {
+        lastQ = target.q; lastR = target.r;
       }
+      // 不在此回傳，繼續將單位搬到 lastQ/lastR（並處理連鎖衝突）
+    } else {
+      // 播放干擾棋擊飛動畫，完畢後才執行淘汰
+      const _knockerPersona  = knocker ? knocker.persona : null;
+      const _knockerDisplay  = knocker ? (knocker.personaLabel || knocker.persona) : '干擾棋';
+      const _targetName      = target === player ? player.name : target.name;
+      (async () => {
+        if (_knockerPersona) {
+          await queueKnockoutAnim(_knockerPersona, _knockerDisplay, _targetName);
+        }
+        if (target === player) {
+          State.gameOver = true;
+          HUD.logTxt.textContent += '\n玩家被撞出界，淘汰！';
+          addEliminationLog(`${player.name} 被撞出界淘汰`);
+          stopBgm();
+          try { showEndModal('敗北', `玩家 ${player.name} 被撞出界淘汰，遊戲結束。\n\n${HUD.logTxt.textContent || ''}`); } catch (e) {}
+        } else {
+          const idx = State.npcList.findIndex(n => n === target);
+          if (idx !== -1) {
+            addEliminationLog(`${target.name} 被撞出界淘汰`);
+            State.npcList.splice(idx, 1);
+            updateHUD();
+            checkVictory();
+          }
+        }
+      })();
+      return;
     }
-    return;
   }
 
   // 落點移動
@@ -662,22 +686,34 @@ export function performKnockbackOn(target, dirQ, dirR, forceKb = null) {
   if (target !== player && player.q === lastQ && player.r === lastR) {
     const res = resolveBetween(player, target, tile);
     if (res) {
-      HUD.logTxt.textContent = `【連鎖衝突】${player.name} vs ${target.name} → ${res.winner === 'P' ? player.name : target.name} 勝`;
-      if (res.winner === 'P') {
-        // 玩家勝，移除 target NPC
-        const idx2 = State.npcList.findIndex(n => n === target);
-        if (idx2 !== -1) {
-          addEliminationLog(`${target.name} 在連鎖衝突中被玩家 ${player.name} 擊敗淘汰`);
-          State.npcList.splice(idx2, 1);
-          updateHUD();
-          checkVictory();
+      const signTxt = res.sign === 1 ? '+' : '−';
+      const header = `【連鎖衝突】格子：${res.stat} ${signTxt}（${res.sign===1?"比大":"比小"}）`;
+      const line = `${player.name}：${res.pv}   vs   ${target.name}：${res.ev}`;
+      const outcome = res.winner === 'P' ? `${player.name} 勝` : `${target.name} 勝`;
+      (async () => {
+        await queueBattleAnim(
+          player.name, target.name,
+          tile ? { stat: tile.stat, sign: tile.sign } : null, true,
+          { winner: res.winner === 'P' ? 'A' : 'B', pv: res.pv, ev: res.ev }
+        );
+        HUD.logTxt.textContent = `${header}\n${line}\n${outcome}\n\n${res.reason}`;
+        if (res.winner === 'P') {
+          // 玩家勝，移除 target NPC
+          const idx2 = State.npcList.findIndex(n => n === target);
+          if (idx2 !== -1) {
+            addEliminationLog(`${target.name} 在連鎖衝突中被玩家 ${player.name} 擊敗淘汰`);
+            State.npcList.splice(idx2, 1);
+            updateHUD();
+            checkVictory();
+          }
+        } else {
+          // NPC 勝，玩家落敗
+          State.gameOver = true;
+          addEliminationLog(`${player.name} 在連鎖衝突中被 ${target.name} 擊敗淘汰`);
+          stopBgm();
+          try { showEndModal('敗北', `玩家 ${player.name} 在連鎖衝突中被 ${target.name} 擊敗，遊戲結束。\n\n${HUD.logTxt.textContent || ''}`); } catch (e) {}
         }
-      } else {
-        // NPC 勝，玩家落敗
-        State.gameOver = true;
-        addEliminationLog(`${player.name} 在連鎖衝突中被 ${target.name} 擊敗淘汰`);
-        stopBgm();
-      }
+      })();
     }
     return;
   }
@@ -688,32 +724,48 @@ export function performKnockbackOn(target, dirQ, dirR, forceKb = null) {
     const other = State.npcList[otherIdx];
     const res   = resolveBetween(target, other, tile);
     if (res) {
-      HUD.logTxt.textContent = `【連鎖衝突】${target.name} vs ${other.name} → ${res.winner === 'P' ? target.name : other.name} 勝`;
-      if (res.winner === 'P') {
-        // target 勝，移除 other
-        const idx2 = State.npcList.findIndex(n => n === other);
-        if (idx2 !== -1) {
-          addEliminationLog(`${other.name} 在連鎖衝突中被淘汰`);
-          State.npcList.splice(idx2, 1);
-          updateHUD();
-          checkVictory();
-        }
-      } else {
-        // other 勝，移除 target
-        if (target === player) {
-          State.gameOver = true;
-          addEliminationLog(`${player.name} 在連鎖衝突中被淘汰`);
-          stopBgm();
-        } else {
-          const idx2 = State.npcList.findIndex(n => n === target);
+      const signTxt = res.sign === 1 ? '+' : '−';
+      const header = `【連鎖衝突】格子：${res.stat} ${signTxt}（${res.sign===1?"比大":"比小"}）`;
+      const line = `${target.name}：${res.pv}   vs   ${other.name}：${res.ev}`;
+      const outcome = res.winner === 'P' ? `${target.name} 勝` : `${other.name} 勝`;
+      // 判斷是否有玩家涉及（target 或 other 可能是 player）
+      const _isPlayerBattle = (target === player || other === player);
+      const _aName = target === player ? player.name : target.name;
+      const _bName = other === player   ? player.name : other.name;
+      (async () => {
+        await queueBattleAnim(
+          _aName, _bName,
+          tile ? { stat: tile.stat, sign: tile.sign } : null, _isPlayerBattle,
+          { winner: res.winner === 'P' ? 'A' : 'B', pv: res.pv, ev: res.ev }
+        );
+        HUD.logTxt.textContent = `${header}\n${line}\n${outcome}\n\n${res.reason}`;
+        if (res.winner === 'P') {
+          // target 勝，移除 other
+          const idx2 = State.npcList.findIndex(n => n === other);
           if (idx2 !== -1) {
-            addEliminationLog(`${target.name} 在連鎖衝突中被淘汰`);
+            addEliminationLog(`${other.name} 在連鎖衝突中被淘汰`);
             State.npcList.splice(idx2, 1);
             updateHUD();
             checkVictory();
           }
+        } else {
+          // other 勝，移除 target
+          if (target === player) {
+            State.gameOver = true;
+            addEliminationLog(`${player.name} 在連鎖衝突中被淘汰`);
+            stopBgm();
+            try { showEndModal('敗北', `玩家 ${player.name} 在連鎖衝突中被淘汰，遊戲結束。\n\n${HUD.logTxt.textContent || ''}`); } catch (e) {}
+          } else {
+            const idx2 = State.npcList.findIndex(n => n === target);
+            if (idx2 !== -1) {
+              addEliminationLog(`${target.name} 在連鎖衝突中被淘汰`);
+              State.npcList.splice(idx2, 1);
+              updateHUD();
+              checkVictory();
+            }
+          }
         }
-      }
+      })();
     }
   }
 }
@@ -763,7 +815,7 @@ export function finishEnvironmentPhase() {
           break;
         }
       }
-      performKnockbackOn(target, dirQ, dirR, forceKb);
+      performKnockbackOn(target, dirQ, dirR, forceKb, k);
     }
   }
   // 技能冷卻遞減
@@ -772,5 +824,6 @@ export function finishEnvironmentPhase() {
     if (k.skillCooldown > 0) k.skillCooldown = Math.max(0, k.skillCooldown - 1);
   }
   updateHUD();
-  checkEncounters();
+  // 等佇列裡所有動畫（擊飛淨出界等）播完後再執行遇遇判定
+  waitAnimQueueEmpty().then(() => { checkEncounters(); });
 }

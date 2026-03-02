@@ -3,6 +3,7 @@
 // ============================================================
 
 import { CHARS, PROJECT_IMAGES, KNOCKER_PERSONA_STYLES } from './config.js';
+import { loadRoles } from './roleLoader.js';
 import { State, player, cam, getCharButtons } from './state.js';
 import { keyOf, axialToPixel, pixelToAxial, dist, inBoard } from './hex.js';
 import { regenTiles, loadCharImages, loadKnockerImages } from './board.js';
@@ -11,6 +12,7 @@ import {
   buildCharButtons, fmtStats,
   setNpcRiskChance, applyDifficulty,
   saveSettings, loadSettings, resetDefaults,
+  initMenus, showStartMenu, hideMenus,
 } from './ui.js';
 import { initBgm, tryPlayBgm, stopBgm } from './bgm.js';
 import { checkEncounters } from './combat.js';
@@ -207,6 +209,7 @@ export function tryMoveTo(q, r, clientX, clientY) {
   if (!inBoard(q, r)) return;
   if (player.moving || State.npcList.some(n => n.moving)) return;
   if (State.gameOver) return;
+  if (State.battleLocked) return;   // 戰鬥動畫播放中，禁止操作
   const d = dist(player.q, player.r, q, r);
 
   if (d === 0) {
@@ -481,12 +484,19 @@ function loop() {
 }
 
 // ── 初始化 ────────────────────────────────────────────
-function init() {
+async function init() {
   initCanvas();
   resize();
   initHUD();
   initBgm();
+
+  // 先從 CSV 載入角色資料，再建立選角 UI
+  await loadRoles();
   buildCharButtons();
+
+  // 初始化選單 overlay
+  initMenus();
+  showStartMenu();
 
   // 設定預設選角
   const def = CHARS.find(c => c.name === State.selectedChar) || CHARS[0];
@@ -575,6 +585,25 @@ function init() {
 
   loadSettings();
 
+  // ── 戰鬥動畫開關 ───────────────────────────────────
+  const animRow = document.createElement('div');
+  animRow.style.marginTop = '8px';
+  animRow.innerHTML = '<div class="muted">戰鬥動畫設定：</div>';
+
+  const mkAnimToggle = (id, label, stateKey) => {
+    const wrap = document.createElement('label');
+    wrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-right:14px;cursor:pointer;font-size:13px;margin-top:4px';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = State[stateKey]; cb.id = id;
+    cb.addEventListener('change', e => { State[stateKey] = e.target.checked; });
+    wrap.appendChild(cb);
+    wrap.appendChild(document.createTextNode(label));
+    return wrap;
+  };
+  animRow.appendChild(mkAnimToggle('animPlayer', '玩家戰鬥動畫', 'battleAnimPlayer'));
+  animRow.appendChild(mkAnimToggle('animNpc',    'NPC 對戰動畫',    'battleAnimNpc'));
+  document.getElementById('panel').appendChild(animRow);
+
   // ── Knockers UI ────────────────────────────────────
   const kRow = document.createElement('div');
   kRow.style.marginTop = '8px';
@@ -589,6 +618,16 @@ function init() {
     if (!State.knockersEnabled) State.knockers = [];
   });
   kRow.appendChild(kEnable); kRow.appendChild(kLabel);
+  // 新增：越界淘汰開關（預設開啟）
+  const kElim = document.createElement('input');
+  kElim.type = 'checkbox'; kElim.checked = State.knockersEliminateOnOut; kElim.id = 'knockersEliminate';
+  const kElimLabel = document.createElement('label');
+  kElimLabel.htmlFor = 'knockersEliminate'; kElimLabel.style.cssText = 'margin-left:6px;margin-right:8px';
+  kElimLabel.textContent = '越界淘汰（勾選：越界即淘汰；取消：改為回彈）';
+  kElim.addEventListener('change', e => {
+    State.knockersEliminateOnOut = e.target.checked;
+  });
+  kRow.appendChild(kElim); kRow.appendChild(kElimLabel);
   const kCount = document.createElement('input');
   kCount.type = 'range'; kCount.min = '0'; kCount.max = '8'; kCount.step = '1';
   kCount.value = String(State.knockersCount); kCount.style.width = '100%';
@@ -795,5 +834,18 @@ function init() {
   loadKnockerImages();
   requestAnimationFrame(loop);
 }
+
+// 監聽 UI 發出的開始請求（避免 circular import）
+document.addEventListener('ui:startRequested', () => {
+  hideMenus();
+  startGame();
+});
+
+// 監聽玩家在結束對話框按下確定：重置並回到開始選單
+document.addEventListener('ui:endConfirmed', () => {
+  // 重置遊戲並顯示開始選單
+  restart();
+  showStartMenu();
+});
 
 init();
