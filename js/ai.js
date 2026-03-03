@@ -16,8 +16,15 @@ const NEIGH = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
 export function placeNpcList() {
   State.npcList = [];
   const ex = new Set([keyOf(player.q, player.r)]);
-  const pool = CHARS.filter(c => c.name !== State.selectedChar);
-  for (const c of pool) {
+
+  // 使用預選 NPC 名單；未滿則不補（startGame 已在前置確保滿 39 名）
+  const npcNames = (State.selectedNpcs && State.selectedNpcs.length > 0)
+    ? State.selectedNpcs
+    : CHARS.filter(c => c.name !== State.selectedChar).map(c => c.name);
+
+  for (const name of npcNames) {
+    const c = CHARS.find(ch => ch.name === name);
+    if (!c) continue;
     const k = randomTile(ex);
     if (!k) break;
     ex.add(k);

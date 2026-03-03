@@ -1,7 +1,10 @@
 html, body { height: 100%; margin: 0; background:#0f1218; color:#e6e6e6; font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif; }
-#wrap { display: grid; grid-template-columns: 1fr 340px; gap: 12px; height: 100%; padding: 12px; box-sizing: border-box; }
+#wrap { display: grid; grid-template-columns: 1fr 340px; gap: 12px; height: 100%; padding: 12px; box-sizing: border-box; transition: grid-template-columns 220ms ease; }
 #game { background: #0b0e14; border: 1px solid #2a3040; border-radius: 12px; width: 100%; height: 100%; display:block; }
-#panel { border: 1px solid #2a3040; border-radius: 12px; padding: 12px; background:#0b0e14; overflow:auto; }
+#panel { border: 1px solid #2a3040; border-radius: 12px; padding: 12px; background:#0b0e14; overflow:auto; transition: padding 220ms ease; }
+#panelToggle { position: fixed; top: 14px; right: 16px; z-index: 200; padding: 4px 10px; font-size: 13px; cursor: pointer; border-radius: 8px; }
+#wrap.panel-collapsed { grid-template-columns: 1fr; }
+#wrap.panel-collapsed #panel { display: none; }
 h1 { font-size: 16px; margin: 0 0 10px; }
 .row { margin: 10px 0; padding: 10px; border: 1px solid #20263a; border-radius: 10px; background:#0f1424; }
 .muted { color:#a8b0c2; font-size: 12px; line-height: 1.5; }
@@ -85,10 +88,60 @@ button:hover { filter: brightness(1.12); }
   #wrap { grid-template-columns: 1fr; grid-template-rows: 1fr auto; gap: 6px; padding: 8px; }
   #game { border-radius: 12px 12px 6px 6px; height: auto; min-height: 280px; }
   #panel { border-radius: 12px 12px 0 0; max-height: 40vh; overflow: auto; transition: max-height 240ms ease; }
-  #panel.panel-collapsed { max-height: 10vh; }
+  #wrap.panel-collapsed { grid-template-columns: 1fr; }
+  #wrap.panel-collapsed #panel { max-height: 44px; padding: 10px 12px; }
   #panel .panel-handle { display: flex; justify-content: center; align-items: center; gap:8px; margin-bottom:8px; }
   #panelToggle { display: inline-block; }
+
+  /* 面板展開時隱藏訊息框，收合時恢復至左下 */
+  #msgOverlay { display: none; }
+  #wrap.panel-collapsed ~ #msgOverlay { display: block; top: auto; bottom: 12px; left: 8px; width: calc(100vw - 60px); max-width: 320px; }
 }
+
+/* 懸浮訊息框 */
+#msgOverlay {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 150;
+  width: 280px;
+  background: rgba(8,12,22,0.88);
+  border: 1px solid rgba(60,80,120,0.5);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+#msgToggleBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px 4px;
+  border-bottom: 1px solid rgba(60,80,120,0.3);
+  cursor: default;
+}
+#msgToggle {
+  border: none;
+  background: transparent;
+  color: #a8b0c2;
+  font-size: 14px;
+  padding: 0 2px;
+  cursor: pointer;
+  line-height: 1;
+}
+#msgToggle:hover { filter: brightness(1.4); }
+#msgBody {
+  padding: 8px 10px 10px;
+  max-height: 260px;
+  overflow: hidden;
+  transition: max-height 200ms ease, padding 200ms ease;
+}
+#msgBody.collapsed {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.msg-section { line-height: 1.6; }
 
 /* Start / Character Overlays */
 .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,6,10,0.7); z-index: 20000; }
@@ -96,6 +149,8 @@ button:hover { filter: brightness(1.12); }
 .overlay .menu.char-select-menu { width: min(940px, 96%); }
 .overlay h1, .overlay h2 { margin:0 0 8px; }
 .overlay .desc { color:#a8b0c2; margin-bottom:12px; }
+.overlay .menu.start-menu { padding: 20px; text-align: center; width: min(700px, 94%); }
+.start-cover { width: 100%; max-width: 660px; border-radius: 10px; display: block; margin: 0 auto; object-fit: cover; box-shadow: 0 6px 28px rgba(0,0,0,0.7); }
 /* ── 角色選單卡片網格 ── */
 .char-grid { display:grid; grid-template-columns: repeat(5, 1fr); gap:12px; padding:4px 0; }
 
@@ -161,6 +216,56 @@ button:hover { filter: brightness(1.12); }
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 .char-card.selected .cc-nameplate { color:#ffe06a; }
+
+/* ── 玩家 / NPC 選取狀態 ── */
+.char-card.cc-player {
+  border-color: #ffe06a;
+  box-shadow: inset 0 0 0 1px #c8a030, 0 0 0 2px #ffe06a55, 0 8px 24px rgba(0,0,0,0.5);
+  background: linear-gradient(180deg,#4a3208 0%,#2d1c08 65%,#1a0e05 100%);
+}
+.char-card.cc-player .cc-nameplate { color:#ffe06a; }
+.char-card.cc-npc {
+  border-color: #5ab8ff;
+  box-shadow: inset 0 0 0 1px #2080cc, 0 0 0 2px #5ab8ff44, 0 8px 24px rgba(0,0,0,0.5);
+  background: linear-gradient(180deg,#082038 0%,#0a1828 65%,#050e1a 100%);
+}
+.char-card.cc-npc .cc-nameplate { color:#8ce4ff; }
+
+/* 卡片角落徽章 */
+.cc-badge {
+  position:absolute; top:5px; right:6px; z-index:3;
+  font-size:9px; font-weight:800; line-height:1;
+  padding:2px 5px; border-radius:4px;
+  letter-spacing:0.4px;
+}
+.cc-badge-player { background:#ffe06a; color:#3a1f00; }
+.cc-badge-npc    { background:#3aacff; color:#001a33; }
+
+/* ── 模式切換列 ── */
+.cs-mode-bar {
+  display:flex; align-items:center; gap:8px;
+  margin-bottom:10px; flex-wrap:wrap;
+}
+.cs-mode-btn {
+  background:rgba(60,80,110,0.25); border:1px solid rgba(90,120,160,0.45);
+  color:#8ab0d0; border-radius:7px; padding:5px 14px;
+  font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s;
+}
+.cs-mode-btn:hover { background:rgba(90,120,160,0.35); color:#cce4ff; }
+.cs-mode-btn.cs-mode-active {
+  background:rgba(100,160,220,0.22); border-color:#5ab8ff;
+  color:#b0dcff; box-shadow:0 0 10px rgba(90,180,255,0.25);
+}
+
+/* 計數器 */
+.cs-counter {
+  margin-left:auto; font-size:12px; color:#8099b8;
+  white-space:nowrap;
+}
+.cs-counter .cs-ok      { color:#5eff9e; font-weight:700; }
+.cs-counter .cs-partial { color:#ffe97a; font-weight:700; }
+.cs-counter .cs-empty   { color:#8099b8; }
+.cs-counter .cs-total   { color:#cce4ff; font-weight:700; }
 
 /* 翻頁列 */
 .char-pager {

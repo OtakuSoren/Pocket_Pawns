@@ -135,10 +135,23 @@ export function resetDefaults() { applyDifficulty('medium'); saveSettings(); }
 // ── 選角分頁常數 ─────────────────────────────────────────
 const CHAR_PAGE_SIZE = 10;   // 每頁最多幾張卡
 let _charPage = 0;           // 目前頁碼（0-based）
+let _charSelectMode = 'player'; // 'player' | 'npc'
 
 // ── 開始選單 / 人物選單 Overlay （建立於 body）────────
 let startOverlay = null;
 let charOverlay = null;
+
+// ── 選角計數器更新 ────────────────────────────────────────
+function _updateCharCounter() {
+  const el = document.getElementById('charCounter');
+  if (!el) return;
+  const npcs     = Array.isArray(State.selectedNpcs) ? State.selectedNpcs.length : 0;
+  const hasPlayer = State.selectedChar ? 1 : 0;
+  el.innerHTML =
+    `<span class="${hasPlayer ? 'cs-ok' : 'cs-empty'}">玩家&nbsp;${hasPlayer}/1</span>` +
+    `&ensp;<span class="${npcs >= 39 ? 'cs-ok' : (npcs > 0 ? 'cs-partial' : 'cs-empty')}">NPC&nbsp;${npcs}/39</span>` +
+    `&ensp;<span class="cs-total">合計&nbsp;${hasPlayer + npcs}/40</span>`;
+}
 
 export function initMenus() {
   if (startOverlay) return;
@@ -147,10 +160,9 @@ export function initMenus() {
   startOverlay.id = 'startOverlay';
   startOverlay.className = 'overlay';
   startOverlay.innerHTML = `
-    <div class="menu">
-      <h1>口袋棋兵</h1>
-      <div class="desc">Demo A-1</div>
-      <div class="btns">
+    <div class="menu start-menu">
+      <img src="image/Cover/Game Cover.png" alt="口袋棋兵封面" class="start-cover" />
+      <div class="btns" style="margin-top:16px;">
         <button id="start_to_char">選擇角色</button>
         <button id="start_direct">直接開始</button>
       </div>
@@ -163,6 +175,11 @@ export function initMenus() {
   charOverlay.innerHTML = `
     <div class="menu char-select-menu">
       <h2>選擇角色</h2>
+      <div class="cs-mode-bar">
+        <button id="modePlayer" class="cs-mode-btn cs-mode-active">👤 選玩家</button>
+        <button id="modeNpc"    class="cs-mode-btn">⚔ 選NPC</button>
+        <div id="charCounter" class="cs-counter">玩家&nbsp;0/1&ensp;NPC&nbsp;0/39&ensp;合計&nbsp;0/40</div>
+      </div>
       <div id="charGrid" class="char-grid"></div>
       <div class="char-pager">
         <button id="charPrev">&#9664;</button>
@@ -194,25 +211,51 @@ export function initMenus() {
 
     grid.innerHTML = '';
     for (const c of slice) {
+      const isPlayer = c.name === State.selectedChar;
+      const isNpc    = Array.isArray(State.selectedNpcs) && State.selectedNpcs.includes(c.name);
       const card = document.createElement('div');
       card.className = 'char-card';
       card.dataset.name = c.name;
-      if (c.name === State.selectedChar) card.classList.add('selected');
-      const psrc = c.portrait ? encodeURI(`image/Role/${c.portrait}`) : '';
+      if (isPlayer)     card.classList.add('cc-player');
+      else if (isNpc)   card.classList.add('cc-npc');
+      const psrc  = c.portrait ? encodeURI(`image/Role/${c.portrait}`) : '';
+      const badge = isPlayer
+        ? '<div class="cc-badge cc-badge-player">玩家</div>'
+        : isNpc
+          ? '<div class="cc-badge cc-badge-npc">NPC</div>'
+          : '';
       card.innerHTML = `
         <div class="cc-frame-corner tl"></div>
         <div class="cc-frame-corner tr"></div>
         <div class="cc-frame-corner bl"></div>
         <div class="cc-frame-corner br"></div>
+        ${badge}
         <div class="cc-portrait">${psrc ? `<img src="${psrc}" alt="${c.name}">` : '<span class="cc-portrait-ph">👤</span>'}</div>
         <div class="cc-stats-row">${_cardStatsHTML(c.stats)}</div>
         <div class="cc-nameplate"><span>${c.name}</span></div>`;
       card.addEventListener('click', () => {
-        for (const el of grid.querySelectorAll('.char-card')) el.classList.remove('selected');
-        card.classList.add('selected');
-        State.selectedChar = c.name;
-        player.name = c.name; player.stats = Object.assign({}, c.stats);
+        if (_charSelectMode === 'player') {
+          // 設為玩家；若原本已是 NPC 則從清單移除
+          State.selectedChar = c.name;
+          player.name = c.name; player.stats = Object.assign({}, c.stats);
+          if (Array.isArray(State.selectedNpcs)) {
+            const idx = State.selectedNpcs.indexOf(c.name);
+            if (idx !== -1) State.selectedNpcs.splice(idx, 1);
+          }
+        } else {
+          // NPC 模式：切換選取（玩家不可再加入 NPC 名單）
+          if (!Array.isArray(State.selectedNpcs)) State.selectedNpcs = [];
+          if (c.name === State.selectedChar) return;
+          const idx = State.selectedNpcs.indexOf(c.name);
+          if (idx !== -1) {
+            State.selectedNpcs.splice(idx, 1);
+          } else if (State.selectedNpcs.length < 39) {
+            State.selectedNpcs.push(c.name);
+          }
+        }
         updateHUD();
+        _updateCharCounter();
+        _renderCharPage(_charPage);
       });
       grid.appendChild(card);
     }
@@ -220,6 +263,7 @@ export function initMenus() {
     if (info) info.textContent = `${_charPage + 1} / ${totalPages}`;
     charOverlay.querySelector('#charPrev').disabled = _charPage === 0;
     charOverlay.querySelector('#charNext').disabled = _charPage >= totalPages - 1;
+    _updateCharCounter();
   }
 
   _renderCharPage(0);
@@ -227,16 +271,31 @@ export function initMenus() {
   charOverlay.querySelector('#charPrev').addEventListener('click', () => _renderCharPage(_charPage - 1));
   charOverlay.querySelector('#charNext').addEventListener('click', () => _renderCharPage(_charPage + 1));
 
+  // 模式切換
+  charOverlay.querySelector('#modePlayer').addEventListener('click', () => {
+    _charSelectMode = 'player';
+    charOverlay.querySelector('#modePlayer').classList.add('cs-mode-active');
+    charOverlay.querySelector('#modeNpc').classList.remove('cs-mode-active');
+  });
+  charOverlay.querySelector('#modeNpc').addEventListener('click', () => {
+    _charSelectMode = 'npc';
+    charOverlay.querySelector('#modeNpc').classList.add('cs-mode-active');
+    charOverlay.querySelector('#modePlayer').classList.remove('cs-mode-active');
+  });
+
   // buttons
-  document.getElementById('start_to_char').addEventListener('click', () => showCharSelect());
+  document.getElementById('start_to_char').addEventListener('click', () => {
+    _charSelectMode = 'player';
+    showCharSelect();
+  });
   document.getElementById('start_direct').addEventListener('click', () => {
-    // 如果已選角就直接發出啟動請求，否則打開選角
-    if (State.selectedChar) document.dispatchEvent(new CustomEvent('ui:startRequested'));
-    else showCharSelect();
+    // 清除舊選擇，完全隨機 40 名
+    State.selectedChar = '';
+    State.selectedNpcs = [];
+    document.dispatchEvent(new CustomEvent('ui:startRequested'));
   });
   document.getElementById('charBack').addEventListener('click', () => showStartMenu());
   document.getElementById('charConfirm').addEventListener('click', () => {
-    if (!State.selectedChar) { alert('請先選擇角色'); return; }
     document.dispatchEvent(new CustomEvent('ui:startRequested'));
   });
 
@@ -265,7 +324,19 @@ export function initMenus() {
 }
 
 export function showStartMenu() { if (!startOverlay) initMenus(); startOverlay.style.display = 'flex'; if (charOverlay) charOverlay.style.display = 'none'; }
-export function showCharSelect() { if (!charOverlay) initMenus(); charOverlay.style.display = 'flex'; if (startOverlay) startOverlay.style.display = 'none'; }
+export function showCharSelect() {
+  if (!charOverlay) initMenus();
+  charOverlay.style.display = 'flex';
+  if (startOverlay) startOverlay.style.display = 'none';
+  _updateCharCounter();
+  // 同步模式按鈕視覺
+  const mp = charOverlay.querySelector('#modePlayer');
+  const mn = charOverlay.querySelector('#modeNpc');
+  if (mp && mn) {
+    if (_charSelectMode === 'player') { mp.classList.add('cs-mode-active'); mn.classList.remove('cs-mode-active'); }
+    else                              { mn.classList.add('cs-mode-active'); mp.classList.remove('cs-mode-active'); }
+  }
+}
 export function hideMenus() { if (startOverlay) startOverlay.style.display = 'none'; if (charOverlay) charOverlay.style.display = 'none'; }
 
 export function showEndModal(title, msg) {

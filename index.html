@@ -3,24 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>口袋棋兵 Demo A-1：單角色移動 + 遇到NPC判定</title>
+  <title>口袋棋兵 Pocket Pawns</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
   <audio id="bgm" preload="auto"></audio>
-<div id="wrap">
+<div id="wrap" class="panel-collapsed">
   <canvas id="game"></canvas>
 
+  <button id="panelToggle" title="展開選單">▶</button>
+
   <div id="panel">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h1 style="margin:0; font-size:16px;">口袋棋兵 Demo A-1：單角色移動 + 遇到NPC判定</h1>
-      <button id="panelToggle" style="display:none;">展開選單</button>
-    </div>
+    <h1 style="margin:0 0 4px; font-size:16px;">口袋棋兵 Pocket Pawns</h1>
 
     <div class="row">
       <div class="muted">操作</div>
-      <div>點「角色相鄰的六角格」移動。走到 <span class="ng">紅色 NPC</span> 那格就會立刻判定勝負。</div>
-      <div class="muted" style="margin-top:6px;">規則：<span class="tag good">+</span> 比大、<span class="tag bad">-</span> 比小、平手用 LUK 加權擲骰。</div>
+      <div>點選相鄰六角格移動，或用鍵盤 <kbd>W A S D</kbd> 操控。點選自己角色可使用技能。</div>
+      <div class="muted" style="margin-top:6px;">遭遇判定：<span class="tag good">+</span> 比大、<span class="tag bad">-</span> 比小、平手用 LUK 加權擲骰。</div>
     </div>
 
     <div class="row" id="hud">
@@ -33,21 +32,11 @@
       <div style="margin-top:6px;"><span class="k">待機冷卻：</span><span class="v mono" id="waitCdTxt">0</span></div>
     </div>
 
-    <div class="row">
-      <div class="muted">玩家屬性（先固定一組，之後可改成讀角色卡資料）</div>
-      <div style="margin-top:8px;" id="charSelectRow">
-        <div class="muted">選擇角色：</div>
-        <div class="btns" style="margin-top:6px;" id="charBtns"></div>
-      </div>
-      <div class="mono" id="statsTxt" style="margin-top:6px; line-height: 1.7;"></div>
-      <div class="muted" style="margin-top:10px;">NPC 屬性（每局亂數一組偏科）</div>
-      <div class="mono" id="npcStatsTxt" style="margin-top:6px; line-height: 1.7;"></div>
+    <div style="display:none;" id="charSelectRow">
+      <div id="charBtns"></div>
     </div>
-
-    <div class="row">
-      <div class="muted">最近一次判定</div>
-      <div id="logTxt" class="mono" style="margin-top:6px; line-height: 1.7; white-space: pre-wrap;"></div>
-    </div>
+    <div style="display:none;" id="statsTxt"></div>
+    <div style="display:none;" id="npcStatsTxt"></div>
 
     <div class="row">
       <div class="btns">
@@ -83,12 +72,28 @@
           <button id="toggleTextMode">文字可讀模式：描邊</button>
         </div>
       </div>
-      <div class="muted" style="margin-top:8px;">
-        下一步要加：多 NPC / 淘汰動畫 / 回合按鈕，都能在這版基礎上快速擴充。
-      </div>
+
     </div>
   </div>
 </div>
+
+<div id="msgOverlay">
+  <div id="msgToggleBar">
+    <span class="muted" style="font-size:11px;">訊息</span>
+    <button id="msgToggle" title="收合">▾</button>
+  </div>
+  <div id="msgBody">
+    <div class="msg-section">
+      <div class="muted">最近一次判定</div>
+      <div id="logTxt" class="mono" style="margin-top:4px; line-height:1.7; white-space:pre-wrap; font-size:12px;"></div>
+    </div>
+    <div class="msg-section" id="elimSection">
+      <div class="muted" style="margin-top:8px;">淘汰紀錄</div>
+      <div id="elimTxt" class="mono" style="margin-top:4px; max-height:120px; overflow:auto; font-size:12px;"></div>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="js/game.js"></script>
 </body>
 </html>

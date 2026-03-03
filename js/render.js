@@ -358,6 +358,19 @@ export function draw() {
   // ── Player ────────────────────────────────────────────
   {
     const sp  = worldToScreen(player.x, player.y);
+
+    // 呼吸光環指示（讓玩家在人群中清晰可辨）
+    const pulse = 0.55 + 0.45 * Math.sin(Date.now() / 500);
+    ctx.save();
+    ctx.shadowColor = `rgba(80,200,255,${pulse.toFixed(2)})`;
+    ctx.shadowBlur  = 20 * pulse;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, State.HEX * 0.88, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(120,220,255,${(0.5 + 0.5 * pulse).toFixed(2)})`;
+    ctx.lineWidth   = 2.8;
+    ctx.stroke();
+    ctx.restore();
+
     const img = CHAR_IMAGES.get(player.name);
     if (img && img.complete && img.naturalWidth) {
       const targetH = State.HEX * 2;
@@ -370,6 +383,7 @@ export function draw() {
       ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fill();
       ctx.drawImage(img, drawX, drawY, drawW, targetH);
       drawText(player.name, sp.x, drawY - 12, 12, "rgba(230,230,230,0.9)", true);
+      drawText('▼ 你', sp.x, drawY - 27, 11, `rgba(120,220,255,${(0.7 + 0.3 * pulse).toFixed(2)})`, true);
     } else {
       ctx.beginPath();
       ctx.ellipse(sp.x, sp.y + 18, 16, 6, 0, 0, Math.PI * 2);
@@ -388,6 +402,7 @@ export function draw() {
         ctx.fillStyle = "#1c2333"; ctx.fill();
       }
       drawText(player.name, sp.x, sp.y - 30, 12, "rgba(230,230,230,0.9)", true);
+      drawText('▼ 你', sp.x, sp.y - 45, 11, `rgba(120,220,255,${(0.7 + 0.3 * pulse).toFixed(2)})`, true);
     }
   }
 

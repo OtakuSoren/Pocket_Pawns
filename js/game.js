@@ -392,7 +392,7 @@ export function restart() {
   State.gameOver  = false;
   State.overallWin = false;
   State.wins      = 0;
-  HUD.logTxt.textContent = "（請先選擇角色，然後按「開始遊戲」）";
+  HUD.logTxt.textContent = "（按「直接開始」隨機選角，或「選擇角色」自選玩家與 NPC）";
 
   regenTiles();
   updateHUD();
@@ -403,21 +403,53 @@ export function restart() {
   player.y = player.ty = pp.y;
   player.moving = false; player.intent = null;
 
-  State.npcList    = [];
-  State.knockers   = [];
-  State.turnActive = false;
-  State.inGame     = false;
+  State.npcList      = [];
+  State.knockers     = [];
+  State.turnActive   = false;
+  State.inGame       = false;
+  State.selectedChar = '';
+  State.selectedNpcs = [];
 
   stopBgm();
   for (const b of getCharButtons()) b.disabled = false;
   recenter();
 }
 
+// ── 隨機洗牌輔助 ──────────────────────────────────────
+function _shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/** 公開給 UI 用：隨機填滿選角（玩家 + 最多 39 名 NPC）。
+ *  若已有部分選擇，則只補足缺少的部分；完全空白則全隨機。 */
+export function fillRandomRoster() {
+  const total = CHARS.length;
+  // 若無玩家，隨機指定一名
+  if (!State.selectedChar) {
+    const pick = CHARS[(Math.random() * total) | 0];
+    State.selectedChar = pick.name;
+    player.name  = pick.name;
+    player.stats = Object.assign({}, pick.stats);
+  }
+  // 補足 NPC 至 39 名
+  const need = 39;
+  const existing = new Set(State.selectedNpcs || []);
+  const pool = _shuffle(CHARS.filter(c => c.name !== State.selectedChar && !existing.has(c.name)));
+  const added = pool.slice(0, need - existing.size).map(c => c.name);
+  State.selectedNpcs = [...existing, ...added];
+}
+
 // ── 開始遊戲 ─────────────────────────────────────────
 export function startGame() {
   if (State.inGame) return;
+  // 確保玩家 + 39 名 NPC 均已填滿（隨機補完）
+  fillRandomRoster();
   const def = CHARS.find(c => c.name === State.selectedChar);
-  if (!def) { alert('請先選擇角色'); return; }
+  if (!def) { alert('角色資料異常，請重新整理頁面'); return; }
   player.name  = def.name;
   player.stats = Object.assign({}, def.stats);
   placeNpcList();
@@ -660,11 +692,7 @@ async function init() {
   legend.appendChild(lg);
   document.getElementById('panel').appendChild(legend);
 
-  // ── 淘汰紀錄 ───────────────────────────────────────
-  const elimRow = document.createElement('div');
-  elimRow.className = 'row';
-  elimRow.innerHTML = `<div class="muted">淘汰紀錄</div><div id="elimTxt" class="mono" style="margin-top:6px;max-height:160px;overflow:auto;"></div>`;
-  document.getElementById('panel').appendChild(elimRow);
+  // ── 淘汰紀錄（已在 HTML 靜態定義，直接取用）────────────────────
   HUD.elimTxt = document.getElementById('elimTxt');
 
   // ── 角色 Tooltip ──────────────────────────────────
@@ -768,7 +796,7 @@ async function init() {
     tryMoveTo(a.q, a.r, e.clientX, e.clientY);
   });
 
-  // ── 事件：鍵盤 WASD ───────────────────────────────
+  // ── 事件：鍵盤 ESC ────────────────────────────────
   window.addEventListener('keydown', e => {
     const tag = document.activeElement && document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement && document.activeElement.isContentEditable)) return;
@@ -778,15 +806,7 @@ async function init() {
       if (player.rushPending)  { player.rushPending = false; HUD.logTxt.textContent = '⚡ 衝刺取消'; }
       if (player.pendingSkill) { player.pendingSkill = null; HUD.logTxt.textContent = '技能取消'; }
       closeSkillMenu();
-      return;
     }
-    const map = { w:[0,-1], s:[0,1], a:[-1,0], d:[1,0] };
-    const mv  = map[e.key.toLowerCase()];
-    if (!mv) return;
-    player.rushPending = false;
-    player.pendingSkill = null;   // WASD 移動時取消待選狀態
-    closeSkillMenu();
-    tryMoveTo(player.q + mv[0], player.r + mv[1]);
   });
 
   // ── 事件：背景按鈕 ────────────────────────────────
@@ -820,13 +840,25 @@ async function init() {
 
   // ── 手機面板收合 ───────────────────────────────────
   const panelToggleBtn = document.getElementById('panelToggle');
-  const panelEl        = document.getElementById('panel');
-  if (panelToggleBtn && panelEl) {
-    panelToggleBtn.style.display = '';
+  const wrapEl         = document.getElementById('wrap');
+  if (panelToggleBtn && wrapEl) {
     panelToggleBtn.addEventListener('click', () => {
-      panelEl.classList.toggle('panel-collapsed');
-      panelToggleBtn.textContent = panelEl.classList.contains('panel-collapsed') ? '展開選單' : '收合選單';
-      setTimeout(() => { resize(); recenter(); }, 120);
+      wrapEl.classList.toggle('panel-collapsed');
+      const collapsed = wrapEl.classList.contains('panel-collapsed');
+      panelToggleBtn.textContent = collapsed ? '▶' : '◀';
+      panelToggleBtn.title       = collapsed ? '展開選單' : '收合選單';
+      setTimeout(() => { resize(); recenter(); }, 240);
+    });
+  }
+
+  // ── 訊息框收合 ──────────────────────────────────────
+  const msgToggleBtn = document.getElementById('msgToggle');
+  const msgBody      = document.getElementById('msgBody');
+  if (msgToggleBtn && msgBody) {
+    msgToggleBtn.addEventListener('click', () => {
+      const isCollapsed = msgBody.classList.toggle('collapsed');
+      msgToggleBtn.textContent = isCollapsed ? '▴' : '▾';
+      msgToggleBtn.title       = isCollapsed ? '展開' : '收合';
     });
   }
 

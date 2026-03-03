@@ -68,6 +68,7 @@ export const State = {
 
   // 角色選擇（loadRoles 後由 init() 填入）
   selectedChar: '',
+  selectedNpcs: [],   // 預選 NPC 名稱陣列（最多 39 名；空陣列代表全隨機）
 
   // NPC
   npcList: [],
@@ -81,7 +82,7 @@ export const State = {
   npcStayChance: 0.18,
 
   // Knocker 行為設定：是否碰到邊界即淘汰（true）或改為回彈（false）
-  knockersEliminateOnOut: true,
+  knockersEliminateOnOut: false,
 
   // 背景
   boardBgMode: 'none',
@@ -98,6 +99,6 @@ export const State = {
 
   // 戰鬥動畫
   battleAnimPlayer: true,   // 玩家參戰時顯示動畫
-  battleAnimNpc: true,      // NPC 對 NPC 時顯示動畫
+  battleAnimNpc: false,     // NPC 對 NPC 時顯示動畫
   battleLocked: false,      // 動畫播放期間鎖定玩家輸入
 };
